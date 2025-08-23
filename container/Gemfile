@@ -1,0 +1,45 @@
+# AsciiDoc Container Wrapper - Gem Dependencies
+# Comprehensive AsciiDoc toolchain matching asciidoctor/docker-asciidoctor
+
+source 'https://rubygems.org'
+
+# Core AsciiDoc processor
+gem 'asciidoctor', '~> 2.0'
+
+# PDF generation capability  
+gem 'asciidoctor-pdf', '~> 2.3'
+
+# Diagram support (PlantUML, Graphviz, etc.)
+gem 'asciidoctor-diagram', '~> 3.0'
+gem 'asciidoctor-diagram-ditaamini', '~> 1.0'
+gem 'asciidoctor-diagram-plantuml', '~> 1.2025'
+
+# Include resolution for flattening (our main use case!)
+gem 'asciidoctor-reducer', '~> 1.0'
+
+# Syntax highlighting
+gem 'rouge', '~> 4.6'
+
+# Enhanced presentation formats
+gem 'asciidoctor-revealjs', '~> 5.2'
+
+# Bibliography support
+gem 'asciidoctor-bibtex', '~> 0.8'
+
+# EPUB3 generation
+gem 'asciidoctor-epub3', '~> 2.2'
+
+# Mathematical expressions (optional - can be heavy)
+# gem 'asciidoctor-mathematical', '~> 0.3'
+# gem 'asciimath'
+# gem 'mathematical', '~> 1.6'
+
+gem 'asciidoctor-kroki', '~> 0.10'
+
+# Multi-format document processing
+# gem 'asciidoctor-confluence', '~> 0.0.2'
+
+# Development/debugging gems
+group :development do
+  gem 'bundler', '~> 2.0'
+end

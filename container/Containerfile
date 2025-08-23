@@ -1,0 +1,141 @@
+# ADCW - AsciiDoc Container Wrapper
+# Modern Ruby-based AsciiDoc toolchain for TPO42 Framework
+#
+FROM ruby:3-bookworm
+
+LABEL maintainer="Jens Rehsack <rehsack+tpo42@posteo.de>"
+LABEL description="AsciiDoc Container Wrapper - Lean toolchain for TPO42 operations"
+LABEL version="1.0.0"
+
+# Check for failures in piped commands
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# System environment
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ARG TZ="Etc/UTC"
+ENV LC_ALL=en_US.UTF-8
+
+# Install all required OS packages and generate the system locale
+# Caching derived from example: https://docs.docker.com/reference/dockerfile/#example-cache-apt-packages
+RUN --mount=type=bind,source=extra-packages,target=/mnt/extra-packages,ro \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export DEBIAN_FRONTEND=noninteractive \
+    && rm -f /etc/apt/apt.conf.d/docker-clean \
+    && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' | tee /etc/apt/apt.conf.d/keep-cache \
+    && apt-get update \
+    && apt-get upgrade --yes --fix-broken --fix-missing \
+    && TZ=${TZ} \
+       xargs -a /mnt/extra-packages \
+       apt-get install --no-install-recommends --yes locales \
+    && apt-get autoremove --purge --yes \
+    && update-ca-certificates \
+    && locale-gen en_US.UTF-8 \
+    && update-locale en_US.UTF-8
+
+# Ruby environment configuration
+ENV BUNDLE_HOME=/usr/local/bundle
+ENV BUNDLE_BIN=${BUNDLE_HOME}/bin
+ENV BUNDLE_CACHE_PATH=${BUNDLE_HOME}/cache
+ENV BUNDLE_DISABLE_PLATFORM_WARNINGS=true
+ENV GEM_HOME=/usr/gem
+ENV GEM_BIN_PATH=${GEM_HOME}/bin
+ENV GEM_CACHE_PATH=${GEM_HOME}/cache
+ENV RUBYOPT=-W0
+ENV PATH="${GEM_BIN_PATH}:$PATH"
+
+# Install Ruby gems
+RUN echo "gem: --no-ri --no-rdoc" > ~/.gemrc
+RUN unset GEM_HOME && unset GEM_BIN \
+ && set +o pipefail \
+ && yes | gem update --system \
+ && yes | gem install --force bundler
+
+# Install gems for AsciiDoc toolchain
+RUN --mount=type=bind,source=Gemfile,target=/tmp/Gemfile,ro \
+    cd /tmp && bundle install
+
+# embedding pre-commit into container
+# (Optional - can be de-activated if needed)
+RUN --mount=type=bind,source=extra-packages.pre-commit,target=/mnt/extra-packages.pre-commit,ro \
+    --mount=type=bind,source=requirements.pre-commit.txt,target=/mnt/requirements.pre-commit.txt,ro \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export DEBIAN_FRONTEND=noninteractive \
+    && xargs -a /mnt/extra-packages.pre-commit \
+       apt-get install --no-install-recommends --yes \
+    && ssh-keyscan github.com | tee -a /etc/ssh/ssh_known_hosts \
+    && pip install \
+        --no-cache-dir \
+        --disable-pip-version-check \
+        --root-user-action ignore \
+        --break-system-packages \
+        --requirement "/mnt/requirements.pre-commit.txt"
+
+COPY resources/flatten.sh /usr/local/bin/flatten
+COPY resources/extract-diagrams.sh /usr/local/bin/extract-diagrams
+COPY resources/validate.sh /usr/local/bin/validate
+RUN chmod +x /usr/local/bin/flatten /usr/local/bin/extract-diagrams /usr/local/bin/validate
+
+# Create volume directories
+ENV VOLUMES="/workspace:/build:/cache"
+
+RUN export IFS=":" ; \
+    for dir in ${VOLUMES} ; do \
+        mkdir -vp "${dir}" || exit 1 ; \
+    done
+
+# Add unprivileged user with proper permissions
+ARG USER_UID="1000"
+ARG USER_NAME="adoc"
+ARG USER_GID="100"  
+ARG USER_GROUP_NAME="users"
+
+RUN ( \
+        getent group "${USER_GROUP_NAME}" > /dev/null 2>&1 || \
+        ( \
+            ! getent group "${USER_GID}" > /dev/null 2>&1 && \
+            groupadd --gid "${USER_GID}" "${USER_GROUP_NAME}" || \
+            groupadd "${USER_GROUP_NAME}" \
+        ) \
+    ) && \
+    ( \
+        id -u "${USER_NAME}" > /dev/null 2>&1 || \
+        useradd \
+            --comment "AsciiDoc container user" \
+            --uid "${USER_UID}" \
+            --gid "${USER_GID}" \
+            --create-home \
+            --shell "/bin/bash" \
+            --groups sudo \
+            "${USER_NAME}" \
+    ) && \
+    ( \
+        export IFS=":" ; \
+        for dir in ${VOLUMES} ; do \
+            if [ -d "${dir}" ]; then \
+                chown -vhR "${USER_UID}:${USER_GID}" "${dir}" || exit 1 ; \
+            fi ; \
+        done \
+    )
+
+# Setup container environment
+RUN --mount=type=bind,source=bashrc.bsp,target=/mnt/bashrc.bsp,ro \
+    cat /mnt/bashrc.bsp >> /home/${USER_NAME}/.bashrc
+
+# Cleanup gem caches
+RUN rm -rf /home/${USER_NAME}/.gem \
+    && rm -rf /root/.gem
+
+# Switch to unprivileged user
+USER ${USER_UID}
+WORKDIR /workspace
+
+# Default command: interactive shell
+CMD ["/bin/bash"]
+
+# Usage examples:
+# docker run --rm -v $(pwd):/workspace tpo42/adoc:latest asciidoctor mydoc.adoc
+# docker run --rm -v $(pwd):/workspace tpo42/adoc:latest asciidoctor-pdf mydoc.adoc  
+# docker run -it --rm -v $(pwd):/workspace tpo42/adoc:latest bash

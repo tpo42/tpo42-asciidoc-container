@@ -1,0 +1,38 @@
+# ADCW Container Environment
+# AsciiDoc development-friendly bash environment
+
+# AsciiDoc environment variables
+export ASCIIDOCTOR_SAFE_MODE=safe
+export ASCIIDOCTOR_BACKEND=html5
+
+# Diagram support
+export PLANTUML_JAR=/usr/share/plantuml/plantuml.jar
+
+# Helpful functions
+adoc-help() {
+    cat << 'EOF'
+ADCW Container - AsciiDoc Commands:
+
+Basic Operations:
+  asciidoctor mydoc.adoc           # Generate HTML
+  asciidoctor-pdf mydoc.adoc       # Generate PDF
+  validate mydoc.adoc              # Syntax check
+
+Diagram Support:
+  asciidoctor -r asciidoctor-diagram mydoc.adoc
+  
+Common Options:
+  -a source-highlighter=rouge     # Syntax highlighting
+  -a icons=font                   # Font icons
+  -a toc=left                     # Table of contents
+  -a sectanchors                  # Section anchors
+  -a sectlinks                    # Section links
+
+Working Directory: /workspace
+Build Output: /build
+EOF
+}
+
+# Show help on login
+echo "ADCW Container Environment Ready!"
+echo "Type 'adoc-help' for common commands"

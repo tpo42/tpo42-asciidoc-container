@@ -1,0 +1,196 @@
+#!/bin/bash
+# ADCW - AsciiDoc Container Wrapper  
+# Main CLI for AsciiDoc operations with robust error handling
+
+set -e
+set -u  
+set -o pipefail
+
+_RUNNER_MISSING_RUNNER="Unable to locate a container runtime installation on this system.
+
+Please install it preferably using your distribution's package
+management system.
+
+Example (Debian and derivatives, such as Ubuntu):
+
+    # apt install podman
+
+Example (Fedora, RHEL, etc.):
+
+    # dnf install podman
+
+Example (macOS 26+ with native container support):
+
+    # Already included in macOS 26 "Tahoe"
+
+Docker also provides pre-built binary packages in various formats at:
+https://docs.docker.com/engine/install/#server.
+
+Alternative container runtimes:
+- nerdctl: containerd-native CLI
+- podman: daemonless container engine
+- container: Apple's native framework (macOS 26+)
+"
+
+_RUNNER_MISSING_GIT="Unable to locate a Git installation on this system.
+
+Please install it preferably using your distribution's package
+management system.
+
+Example (Debian and derivatives, such as Ubuntu):
+
+    # apt install git
+
+Example (Fedora, RHEL, etc.):
+
+    # dnf install git
+"
+
+exit_error() {
+    echo "❌ Error: $1" >&2
+    exit 1
+}
+
+# Check for installed Git
+if [[ -z "${_RUNNER_GIT_BIN:-}" ]] ; then
+    _RUNNER_GIT_BIN="$(command -v git)" ||
+        exit_error "${_RUNNER_MISSING_GIT}"
+fi
+
+# shellcheck disable=SC2046,SC2086
+: "${WORK_TREE:=$(realpath $(dirname $(dirname ${BASH_SOURCE[0]})))}"
+: "${GIT_DIR:=${WORK_TREE}/.git}"
+
+# Generate container tag from git describe
+# shellcheck disable=SC2086  
+: "${CONTAINER_TAG:=$(${_RUNNER_GIT_BIN} --git-dir=${GIT_DIR} --work-tree=${WORK_TREE} describe --all --always --dirty | sed -e 's,^heads/,,g' | sed -e 's,^main$,latest,g' | tr / -)}"
+
+# Check for installed docker / podman / container
+if [[ -z "${_RUNNER_BIN:-}" ]] ; then
+    _RUNNER_BIN="$(command -v container)" ||    # Apple's native (macOS 26+)
+    _RUNNER_BIN="$(command -v nerdctl)" ||      # containerd native
+    _RUNNER_BIN="$(command -v finch)" ||        # AWS alternative
+    _RUNNER_BIN="$(command -v podman)" ||       # Red Hat standard
+    _RUNNER_BIN="$(command -v docker)" ||       # Traditional fallback
+        exit_error "${_RUNNER_MISSING_RUNNER}"
+fi
+
+# Container configuration
+CONTAINER_IMAGE="tpo42/adoc:${CONTAINER_TAG}"
+RESOURCES_DIR="${WORK_TREE}/resources"
+
+# Create build directory if needed
+test -d "${PWD}/build" || mkdir -p "${PWD}/build"
+
+# Docker run base command
+docker_run() {
+    ${_RUNNER_BIN} run \
+        --rm --interactive \
+        --volume "${PWD}:/workspace" \
+        --volume "${PWD}/build:/build" \
+        "${CONTAINER_IMAGE}" \
+        "$@"
+}
+
+# Docker run with TTY for interactive commands
+docker_run_tty() {
+    ${_RUNNER_BIN} run \
+        --rm --interactive --tty \
+        --volume "${PWD}:/workspace" \
+        --volume "${PWD}/build:/build" \
+        "${CONTAINER_IMAGE}" \
+        "$@"
+}
+
+# Show usage information
+show_usage() {
+    cat << 'EOF'
+ADCW - AsciiDoc Container Wrapper
+
+Usage:
+  adcw <command> [options]
+
+Commands:
+  flatten       Resolve all includes to self-contained document
+  validate      Syntax validation of AsciiDoc files
+  extract-diagrams  Extract diagram sources for analysis
+  shell         Interactive container shell
+  
+  asciidoctor   Run asciidoctor directly
+  asciidoctor-pdf  Run asciidoctor-pdf directly
+  asciidoctor-reducer  Run asciidoctor-reducer directly
+
+Examples:
+  adcw flatten -i requirements.adoc -o build/requirements-flat.adoc
+  adcw validate -i architecture.adoc
+  adcw extract-diagrams -i overview.adoc -o build/diagrams/
+  adcw shell
+  adcw asciidoctor -a toc=left mydoc.adoc
+  adcw asciidoctor-reducer --output flat.adoc input.adoc
+
+Options:
+  -h, --help    Show this help message
+
+Environment:
+  CONTAINER_TAG Current container tag: ${CONTAINER_TAG}
+EOF
+}
+
+# Check if container exists
+check_container() {
+    if ! ${_RUNNER_BIN} image inspect "${CONTAINER_IMAGE}" >/dev/null 2>&1; then
+        echo "❌ Container ${CONTAINER_IMAGE} not found!"
+        echo ""
+        echo "Build it first:"
+        echo "  ./bin/adcbw"
+        echo ""
+        exit 1
+    fi
+}
+
+# Main command dispatcher
+main() {
+    if [ $# -eq 0 ]; then
+        show_usage
+        exit 1
+    fi
+
+    local command="$1"
+    shift
+
+    case "${command}" in
+        flatten)
+            check_container
+            docker_run /usr/local/bin/flatten "$@"
+            ;;
+        validate)
+            check_container
+            docker_run /usr/local/bin/validate "$@"
+            ;;
+        extract-diagrams)
+            check_container
+            docker_run /usr/local/bin/extract-diagrams "$@"
+            ;;
+        shell)
+            check_container
+            echo "🐚 Starting interactive ADCW shell..."
+            echo "   Using: ${_RUNNER_BIN}"
+            docker_run_tty /bin/bash
+            ;;
+        asciidoctor|asciidoctor-pdf|asciidoctor-reducer)
+            check_container
+            docker_run "${command}" "$@"
+            ;;
+        help|-h|--help)
+            show_usage
+            ;;
+        *)
+            echo "❌ Unknown command: ${command}"
+            echo ""
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
