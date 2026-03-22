@@ -1,0 +1,28 @@
+= ADR-002: Remove pre-commit from Container
+:date: 2026-03-22
+:status: accepted
+
+== Context
+
+The container embeds pre-commit via a Python installation (python3, pip, virtualenv) and a dedicated apt/pip layer.
+This adds significant build complexity and image size for a tool that:
+
+* Repeatedly causes maintenance overhead through breakage unrelated to the container's core purpose
+* Pulls in Python as an additional runtime dependency solely for this one tool
+* Will be replaced by a different solution
+
+== Decision
+
+Remove pre-commit and its dependencies from the container entirely.
+
+This affects:
+
+* The pre-commit build stage in `Containerfile`
+* `extra-packages.pre-commit` (python3, python3-pip, python3-virtualenv)
+* `requirements.pre-commit.txt` (pre-commit==4.2.0)
+
+== Consequences
+
+* Smaller, simpler container focused on its core purpose (AsciiDoc toolchain)
+* No more Python runtime in the container
+* Pre-commit functionality needs to be provided through a different mechanism (out of scope for this ADR)
