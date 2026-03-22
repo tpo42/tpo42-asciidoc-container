@@ -1,0 +1,51 @@
+= ADR-001: Base Image for ADCW Container
+:date: 2026-03-22
+:status: accepted
+
+== Context
+
+ADCW requires a container base image providing Ruby and Debian packages (PlantUML, Graphviz, Git, JRE).
+The image was selected via https://www.ruby-lang.org/ → Docker Hub Official Ruby Image.
+
+Previous state: `ruby:3-bookworm` (Debian 12).
+
+== Decision
+
+Use `ruby:3-trixie` (floating Ruby 3.x on Debian 13 "trixie") as base image.
+
+=== Ruby: Floating 3.x rather than pinning a minor
+
+Ruby 3.x minor versions (3.2→3.3→3.4) maintain good backward compatibility.
+Breaking changes are limited to removed deprecations (`Dir.exists?`, `Refinement#refined_class`) and minimal parsing adjustments — nothing affecting the Asciidoctor gem ecosystem.
+
+Comparable to the situation with Python 3.x and Perl 5.x, where minor upgrades have been unproblematic for years.
+
+Ruby 4.0 exists (since March 2026), but gem ecosystem compatibility is still unclear → stay on 3.x for now.
+
+=== Debian: Trixie over Bookworm
+
+[cols="1,1,1"]
+|===
+| | Bookworm (12) | Trixie (13)
+
+| Status
+| oldstable
+| **current stable** (since Aug 2025)
+
+| Full support until
+| Jun 2026
+| Aug 2028
+
+| LTS until
+| Jun 2028
+| Jun 2030
+|===
+
+Trixie offers a significantly longer support horizon.
+For this use case (Asciidoctor toolchain, not a production web service), tracking current stable Debian carries no meaningful risk.
+
+== Consequences
+
+* Container receives more up-to-date system packages (PlantUML, Graphviz, JRE)
+* No manual Debian upgrade needed in the foreseeable future
+* Gem compatibility must be explicitly verified when considering a Ruby 4.0 transition

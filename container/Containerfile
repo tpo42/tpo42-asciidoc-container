@@ -1,7 +1,8 @@
 # ADCW - AsciiDoc Container Wrapper
 # Modern Ruby-based AsciiDoc toolchain for TPO42 Framework
+# Base image rationale: see adr/adr-001.adoc
 #
-FROM ruby:3-bookworm
+FROM ruby:3-trixie
 
 LABEL maintainer="Jens Rehsack <rehsack+tpo42@posteo.de>"
 LABEL description="AsciiDoc Container Wrapper - Lean toolchain for TPO42 operations"
