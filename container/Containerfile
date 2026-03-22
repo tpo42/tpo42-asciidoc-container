@@ -57,23 +57,6 @@ RUN unset GEM_HOME && unset GEM_BIN \
 RUN --mount=type=bind,source=Gemfile,target=/tmp/Gemfile,ro \
     cd /tmp && bundle install
 
-# embedding pre-commit into container
-# (Optional - can be de-activated if needed)
-RUN --mount=type=bind,source=extra-packages.pre-commit,target=/mnt/extra-packages.pre-commit,ro \
-    --mount=type=bind,source=requirements.pre-commit.txt,target=/mnt/requirements.pre-commit.txt,ro \
-    --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-    export DEBIAN_FRONTEND=noninteractive \
-    && xargs -a /mnt/extra-packages.pre-commit \
-       apt-get install --no-install-recommends --yes \
-    && ssh-keyscan github.com | tee -a /etc/ssh/ssh_known_hosts \
-    && pip install \
-        --no-cache-dir \
-        --disable-pip-version-check \
-        --root-user-action ignore \
-        --break-system-packages \
-        --requirement "/mnt/requirements.pre-commit.txt"
-
 COPY resources/flatten.sh /usr/local/bin/flatten
 COPY resources/extract-diagrams.sh /usr/local/bin/extract-diagrams
 COPY resources/validate.sh /usr/local/bin/validate
