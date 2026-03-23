@@ -1,0 +1,28 @@
+= ADR-004: Include EPUB3 generation capability
+:date: 2026-03-23
+:status: accepted
+
+== Context
+
+The tpo42 framework produces structured documents (arc42, req42, etc.) that are currently rendered as HTML and PDF.
+EPUB3 offers an alternative output format that works well on e-readers and mobile devices, and could serve as a lightweight distribution format alongside PDF.
+
+== Decision
+
+Include `asciidoctor-epub3` in the container toolchain to evaluate EPUB3 as an alternative document deployment format.
+
+This is experimental — the goal is to have a working starting point for EPUB3 output without committing to it as a primary format yet.
+
+== Consequences
+
+* arc42, req42 and similar documents can be rendered to EPUB3 for evaluation
+* A future decision will determine whether EPUB3 becomes a supported output format or gets dropped
+
+=== Known transitive dependency warnings
+
+`asciidoctor-epub3` 2.3.0 pulls in two dependencies with warnings:
+
+* `sass` 3.7.4 — reached end-of-life, used for stylesheet processing at build time
+* `rubyzip` 2.3.2 (via `gepub`) — warns about upcoming API changes in RubyZip 3.0
+
+Both are upstream issues. The upstream repository is actively maintained (last updated March 2026) — revisit when a new release drops.
