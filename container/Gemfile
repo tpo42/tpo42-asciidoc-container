@@ -12,7 +12,7 @@ gem 'asciidoctor-pdf', '~> 2.3'
 # Diagram support (PlantUML, Graphviz, etc.)
 gem 'asciidoctor-diagram', '~> 3.0'
 gem 'asciidoctor-diagram-ditaamini', '~> 1.0'
-gem 'asciidoctor-diagram-plantuml', '~> 1.2025'
+gem 'asciidoctor-diagram-plantuml', '>= 1.2025'
 
 # Include resolution for flattening (our main use case!)
 gem 'asciidoctor-reducer', '~> 1.0'
@@ -41,5 +41,5 @@ gem 'asciidoctor-kroki', '~> 0.10'
 
 # Development/debugging gems
 group :development do
-  gem 'bundler', '~> 2.0'
+  gem 'bundler', '~> 4.0'
 end

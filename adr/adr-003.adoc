@@ -1,0 +1,25 @@
+= ADR-003: Upgrade Bundler from 2.x to 4.x
+:date: 2026-03-22
+:status: accepted
+
+== Context
+
+The switch to `ruby:3-trixie` (ADR-001) brings Bundler 4.0.8, which is incompatible with the previous `~> 2.0` pin in the Gemfile.
+The original `~> 2.0` pin was a default recommendation with no specific technical motivation beyond matching what Bookworm shipped.
+
+Bundler 4.0 introduces breaking changes, none of which affect this project:
+
+* *Lockfile checksums:* No Gemfile.lock committed to this repo
+* *Single global source enforced:* Already the case (`source 'https://rubygems.org'`)
+* *Removed deprecated API methods:* Only relevant for code calling Bundler programmatically
+
+The explicit `gem install bundler` in the Containerfile remains necessary to install Bundler into `$GEM_HOME` rather than the system `/usr` path.
+
+== Decision
+
+Pin Bundler to `~> 4.0` in the Gemfile.
+
+== Consequences
+
+* Container builds work with the Bundler version shipped by Ruby 3.x on Trixie
+* A future Bundler 5.x would require explicit review before adoption
