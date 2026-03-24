@@ -32,8 +32,9 @@ RUN --mount=type=bind,source=extra-packages,target=/mnt/extra-packages,ro \
        apt-get install --no-install-recommends --yes locales \
     && apt-get autoremove --purge --yes \
     && update-ca-certificates \
+    && sed -i 's/^# *\(en_US.UTF-8\)/\1/' /etc/locale.gen \
     && locale-gen en_US.UTF-8 \
-    && update-locale en_US.UTF-8
+    && update-locale LANG=en_US.UTF-8
 
 # Ruby environment configuration
 ENV BUNDLE_HOME=/usr/local/bundle
