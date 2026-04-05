@@ -50,7 +50,7 @@ For projects that need more (custom fonts, Jekyll, additional gems), the recomme
 ```json
 // .devcontainer/devcontainer.json
 {
-  "image": "tpo42/adoc:latest",
+  "image": "ghcr.io/tpo42/adoc:latest",
   "postCreateCommand": "bundle install",
   "forwardPorts": [4000]
 }
@@ -68,7 +68,7 @@ For custom fonts or system packages, use a derived Dockerfile:
 
 ```dockerfile
 # .devcontainer/Dockerfile
-FROM tpo42/adoc:latest
+FROM ghcr.io/tpo42/adoc:latest
 COPY fonts/ /usr/share/fonts/custom/
 RUN fc-cache -f
 ```
@@ -87,7 +87,7 @@ Developer workstations and CI pipelines use the same `devcontainer.json` -- ther
 
 ```
 ruby:3-trixie                    Debian 13, Ruby 3.x (ADR-001)
-  └─ tpo42/adoc                  AsciiDoc toolchain + Bundler 4.x (ADR-003)
+  └─ ghcr.io/tpo42/adoc          AsciiDoc toolchain + Bundler 4.x (ADR-003)
       └─ .devcontainer/          Fonts, Jekyll, extra gems (ADR-005)
 ```
 
