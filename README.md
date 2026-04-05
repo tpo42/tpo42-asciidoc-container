@@ -1,247 +1,200 @@
 # ADCW - AsciiDoc Container Wrapper
 
-**AsciiDoc Container Wrapper** for fast, clean AsciiDoc operations with containerized toolchain.
+A Ruby-native AsciiDoc toolchain in a container -- inspired by the [docToolchain](https://doctoolchain.org/) wrapper pattern (`dtcw`).
 
-## Overview
+## Motivation
 
-ADCW follows the proven docToolchain pattern (`dtcw`) and provides a containerized AsciiDoc environment for:
+[docToolchain](https://doctoolchain.org/) is the reference toolchain for [arc42](https://arc42.org/) and [req42](https://req42.de/), covering a wide range of use cases (HTML, PDF, Confluence, Jira, jBake microsites, ...).
 
-- **Self-contained Documents:** Include resolution for LLM context
-- **Diagram Handling:** PlantUML/Graphviz source code extraction
-- **Syntax Validation:** Best-effort checking of AsciiDoc sources
-- **Quick Operations:** CLI tools for development workflow
+ADCW explores what a lean, Ruby-native container approach looks like for common AsciiDoc operations. It serves as a playground to experiment with different answers to the same use cases -- and to learn which approaches work well, which might feed back into docToolchain, and where docToolchain's existing solutions are already the right ones.
 
-## Project Structure
+The container is designed to be **extensible via two paths**: `adcw` for fast, single-shot operations and [Dev Containers](https://containers.dev/) for extended setups with custom fonts, Jekyll, or additional gems (see [ADR-005](adr/adr-005.adoc)).
 
-```
-├── bin
-│   ├── adcbw
-│   └── adcw
-├── container
-│   ├── bashrc.bsp
-│   ├── Containerfile
-│   ├── extra-packages
-│   ├── extra-packages.pre-commit
-│   ├── Gemfile
-│   ├── requirements.pre-commit.txt
-│   └── resources
-│       ├── extract-diagrams.sh
-│       ├── flatten.sh
-│       └── validate.sh
-├── LICENSE.txt
-└── README.md
-```
-
-## Requirements & Constraints
-
-### Core Requirements
-
-1. **Self-contained Documents**
-   - Resolve all `include::` directives to single `.adoc` file
-   - **Goal:** LLM context preparation - 1-2 files instead of 20+
-   - **Diagrams:** Preserve source code for LLM understanding
-
-2. **Diagram Handling**
-   - Make PlantUML, Graphviz, etc. available in build/ directory
-   - **Source preservation:** Diagram code more important for LLM than rendered images
-   - **CLI-focused:** No complex build pipeline needed
-
-3. **Syntax Validation**
-   - Best-effort AsciiDoc syntax checking
-   - **Scope:** Project-internal content (no web link validation)
-   - **Tools:** What AsciiDoc provides out-of-the-box
-
-### Design Constraints
-
-- **Container:** Only tools (Ruby + AsciiDoc + diagram tools)
-- **Host:** Wrapper scripts + command logic
-- **Pattern:** docToolchain-inspired (`dtcw` → `adcw`)
-- **Base Image:** `ruby:3-bookworm` (consistent with Jekyll container)
-- **User Mapping:** Proper UID/GID handling for file permissions
-
-## Usage
-
-### Container Management
+## Quick Start
 
 ```bash
-# Build container
+# Build the container (uses your host UID/GID for clean file permissions)
 ./bin/adcbw
+
+# Generate a PDF
+./bin/adcw asciidoctor-pdf mydoc.adoc
+
+# Flatten includes for LLM context
+./bin/adcw flatten -i architecture.adoc -o build/architecture-flat.adoc
+
+# Validate AsciiDoc syntax
+./bin/adcw validate -i '*.adoc'
 
 # Interactive shell
 ./bin/adcw shell
 ```
 
-### AsciiDoc Operations
+## Commands
 
-```bash
-# Include resolution (self-contained for LLM)
-./bin/adcw flatten -i requirements.adoc -o build/requirements-flat.adoc
+| Command | Description |
+|---------|-------------|
+| `flatten` | Resolve all `include::` directives into a single self-contained document |
+| `validate` | Best-effort AsciiDoc syntax checking |
+| `extract-diagrams` | Extract PlantUML/Graphviz/Mermaid sources for analysis |
+| `asciidoctor` | Run asciidoctor directly (HTML output) |
+| `asciidoctor-pdf` | Generate PDF documents |
+| `asciidoctor-reducer` | Run asciidoctor-reducer directly |
+| `shell` | Interactive container shell for debugging |
 
-# Syntax validation
-./bin/adcw validate -i architecture.adoc
+## Extending the Container
 
-# Diagram extraction
-./bin/adcw extract-diagrams -i overview.adoc -o build/diagrams/
+Projects that need nothing beyond the base toolchain use `adcw` directly -- no extra setup needed.
 
-# Direct asciidoctor commands
-./bin/adcw asciidoctor mydoc.adoc
-./bin/adcw asciidoctor-pdf mydoc.adoc
+For projects that need more (custom fonts, Jekyll, additional gems), the recommended path is a [Dev Container](https://containers.dev/) configuration:
+
+```json
+// .devcontainer/devcontainer.json
+{
+  "image": "tpo42/adoc:latest",
+  "postCreateCommand": "bundle install",
+  "forwardPorts": [4000]
+}
 ```
 
-### Development Workflow
+For custom fonts or system packages, use a derived Dockerfile:
 
-```bash
-# Quick validation during development
-./bin/adcw validate -i $(find . -name "*.adoc")
-
-# LLM context preparation
-./bin/adcw flatten -i arc42-architecture.adoc -o llm-context/architecture.adoc
-./bin/adcw flatten -i req42-requirements.adoc -o llm-context/requirements.adoc
-
-# Interactive debugging
-./bin/adcw shell
-# → asciidoctor --trace mydoc.adoc
+```json
+// .devcontainer/devcontainer.json
+{
+  "build": { "dockerfile": "Dockerfile" },
+  "forwardPorts": [4000]
+}
 ```
 
-## Technical Architecture
-
-### Container Components
-
-**Base:** `ruby:3-bookworm`
-- Modern Ruby environment
-- Debian-based for package availability
-- Consistent with Jekyll container
-
-**AsciiDoc Toolchain:**
-- `asciidoctor` - Core processor
-- `asciidoctor-pdf` - PDF generation
-- `asciidoctor-diagram` - PlantUML/Graphviz support
-- `rouge` - Syntax highlighting
-
-**System Tools:**
-- Git for repository operations
-- PlantUML for diagram processing
-- Graphviz for graph rendering
-- Basic Unix tools (bash, curl, etc.)
-
-**Optional Components:**
 ```dockerfile
-# embedding pre-commit into container
-# (can be activated if needed)
+# .devcontainer/Dockerfile
+FROM tpo42/adoc:latest
+COPY fonts/ /usr/share/fonts/custom/
+RUN fc-cache -f
 ```
 
-### Volume Mapping
+The [devcontainer CLI](https://github.com/devcontainers/cli) runs these setups outside of VS Code:
 
 ```bash
-# Workspace
---volume "${PWD}:/workspace"
-
-# Build output
---volume "${PWD}/build:/build" 
-
-# Cache (optional)
---volume "${PWD}/.adoc-cache:/cache"
+devcontainer up --workspace-folder .
+devcontainer exec --workspace-folder . asciidoctor-pdf mydoc.adoc
+devcontainer exec --workspace-folder . flatten -i arch.adoc -o build/arch-flat.adoc
 ```
 
-### User Mapping
+Developer workstations and CI pipelines use the same `devcontainer.json` -- there is no separate setup path. See [ADR-005](adr/adr-005.adoc) for the full rationale.
 
-Container respects host user for clean file permissions:
+## Container Stack
 
-```bash
---build-arg=USER_UID="$(id -u)"
---build-arg=USER_GID="$(id -g)" 
---build-arg=USER_NAME="$(id -un)"
---build-arg=USER_GROUP_NAME="$(id -gn)"
+```
+ruby:3-trixie                    Debian 13, Ruby 3.x (ADR-001)
+  └─ tpo42/adoc                  AsciiDoc toolchain + Bundler 4.x (ADR-003)
+      └─ .devcontainer/          Fonts, Jekyll, extra gems (ADR-005)
 ```
 
-## Command Architecture
+### Pre-installed AsciiDoc Toolchain
 
-### Plugin System
+| Gem | Purpose |
+|-----|---------|
+| `asciidoctor` ~> 2.0 | Core AsciiDoc processor |
+| `asciidoctor-pdf` ~> 2.3 | PDF generation |
+| `asciidoctor-reducer` ~> 1.0 | Include resolution / flattening |
+| `asciidoctor-diagram` ~> 3.0 | PlantUML, Graphviz, Mermaid, Ditaa integration |
+| `asciidoctor-revealjs` ~> 5.2 | Presentation slides |
+| `asciidoctor-epub3` ~> 2.2 | EPUB3 generation (experimental, ADR-004) |
+| `asciidoctor-bibtex` ~> 0.8 | Bibliography support |
+| `asciidoctor-kroki` ~> 0.10 | Extended diagram rendering via Kroki |
+| `rouge` ~> 4.6 | Syntax highlighting |
 
-Commands implemented as shell scripts in `resources/`:
+### System Tools
 
-- `flatten.sh` - Include resolution logic
-- `validate.sh` - Syntax checking logic
-- `extract-diagrams.sh` - Diagram extraction logic
+- **PlantUML + Graphviz** -- diagram rendering
+- **Java Runtime** -- required by PlantUML
+- **Git + Git-LFS** -- repository operations
+- **Standard Unix tools** -- bash, curl, wget, make, ssh, etc.
 
-### Wrapper Logic
+## How It Relates to docToolchain
 
-`adcw` recognizes commands and maps them to container operations:
+ADCW explores Ruby-native alternatives for common docToolchain use cases. Some may turn out better, some may confirm that docToolchain's existing approach is already the right one:
 
-```bash
-adcw <command> <args> → docker run ... tpo42/adoc:tag resources/<command>.sh <args>
+| docToolchain task | ADCW equivalent |
+|-------------------|-----------------|
+| `generateHTML` | `adcw asciidoctor` |
+| `generatePDF` | `adcw asciidoctor-pdf` |
+| `generateDeck` | `adcw asciidoctor -r asciidoctor-revealjs` |
+| `collectIncludes` / flatten | `adcw flatten` |
+| `generateSite` (jBake) | Jekyll via devcontainer (see ADR-005) |
+| `publishToConfluence` | open |
+| Jira integration | open |
+| `htmlSanityCheck` | `adcw validate` (different scope) |
+
+## Project Structure
+
 ```
+tpo42-asciidoc-container/
+├── adr/                          Architecture Decision Records
+│   ├── adr-001.adoc             Base image: ruby:3-trixie
+│   ├── adr-002.adoc             Remove pre-commit from container
+│   ├── adr-003.adoc             Upgrade Bundler to 4.x
+│   ├── adr-004.adoc             Include EPUB3 capability
+│   └── adr-005.adoc             Extensibility: adcw + devcontainer
+├── bin/
+│   ├── adcbw                     Build wrapper
+│   └── adcw                      CLI wrapper (command dispatcher)
+├── container/
+│   ├── Containerfile            Container build definition
+│   ├── Gemfile                  Base gem dependencies
+│   ├── bashrc.bsp               Shell environment for container user
+│   ├── extra-packages           System package list
+│   └── resources/               Command scripts (plugin system)
+│       ├── extract-diagrams.sh
+│       ├── flatten.sh
+│       └── validate.sh
+├── LICENSE.txt                  CC-BY-SA-4.0
+└── README.md
+```
+
+## Volume Mapping
+
+| Host | Container | Purpose |
+|------|-----------|---------|
+| `${PWD}` | `/workspace` | Project source files |
+| `${PWD}/build` | `/build` | Generated output |
 
 ## Container Versioning
 
-Git-based container tags (like docToolchain):
+Tags are derived from `git describe`:
 
-```bash
-# Git describe → Container tag
-heads/main → latest
-heads/feature/xyz → feature-xyz
-v1.0.0 → v1.0.0
-dirty → latest-dirty
-```
+| Git state | Container tag |
+|-----------|---------------|
+| `heads/main` | `latest` |
+| `heads/feature/xyz` | `feature-xyz` |
+| `v1.0.0` | `v1.0.0` |
+| dirty working tree | `*-dirty` |
 
-## Integration
+## Container Runtime
 
-### tpo42 Framework
+The wrapper auto-detects available container runtimes (in priority order):
 
-ADCW is optimized for tpo42 templates:
-- req42/arc42 chapter structure
-- Cross-reference resolution  
-- Template-specific validation
+1. `container` -- Apple macOS 26+ native
+2. `nerdctl` -- containerd native CLI
+3. `finch` -- AWS alternative
+4. `podman` -- daemonless container engine
+5. `docker` -- traditional fallback
 
-### Development Workflow
+## Architecture Decisions
 
-```bash
-# tpo42 template development
-adcw flatten -i tpo42-template.adoc -o build/
-adcw validate -i req42-chapters/*.adoc
-adcw extract-diagrams -i arc42-views.adoc -o build/diagrams/
-```
+All significant decisions are documented as ADRs in `adr/`:
 
-### LLM Integration
+- **ADR-001**: Base image `ruby:3-trixie` over bookworm
+- **ADR-002**: Remove pre-commit and Python dependencies from container
+- **ADR-003**: Upgrade Bundler pin from ~> 2.0 to ~> 4.0
+- **ADR-004**: Include experimental EPUB3 generation capability
+- **ADR-005**: Extensibility strategy -- adcw for speed, devcontainer for comfort
 
-Self-contained documents for AI sparring:
+## tpo42 Framework
 
-```bash
-# Prepare context for LLM discussion
-adcw flatten -i architecture.adoc -o llm-context/complete-architecture.adoc
-
-# → Single file with all includes + diagram source
-# → Perfect for LLM technical discussions
-```
-
-## Roadmap
-
-### Phase 1: MVP (Current)
-- ✅ Container with AsciiDoc toolchain
-- ✅ Basic wrapper (build/run)
-- ✅ flatten, validate, extract-diagrams commands
-
-### Phase 2: Enhancement
-- [ ] Template-specific validation rules
-- [ ] Performance optimization (caching)
-- [ ] Extended diagram support (mermaid, etc.)
-
-### Phase 3: Community
-- [ ] tpo42 community sharing
-- [ ] Blog post about container strategy
-- [ ] Docker-library ruby template contribution
-
-## Contributing
-
-ADCW follows established patterns:
-- **Code Style:** Consistent with docToolchain approach
-- **Container Design:** User mapping, proper volumes, clean separation
-- **Command Pattern:** Extensible plugin architecture
+ADCW is part of the [tpo42 Framework](https://www.tpo42.de/) initiative, combining [arc42](https://arc42.org/) (architecture documentation) and [req42](https://req42.de/) (requirements engineering) with lean, modern tooling.
 
 ## License
 
-CC-BY-SA-4.0 License - Part of the tpo42 Framework Initiative
-
----
-
-**Next:** `./bin/adcbw && ./bin/adcw flatten -i mydoc.adoc -o build/mydoc-flat.adoc` 🚀
+CC-BY-SA-4.0 -- see [LICENSE.txt](LICENSE.txt)
