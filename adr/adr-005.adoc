@@ -51,7 +51,7 @@ This stands in contrast to `adcw`, which supports five container runtimes (conta
 
 == Decision
 
-Maintain two complementary paths, both using `tpo42/adoc` as the base image:
+Maintain two complementary paths, both using `ghcr.io/tpo42/adoc` as the base image:
 
 === adcw -- fast path for core operations
 
@@ -70,7 +70,7 @@ For projects that need extensions beyond the base (fonts, Jekyll, custom gems), 
 [source,json]
 ----
 {
-  "image": "tpo42/adoc:latest",
+  "image": "ghcr.io/tpo42/adoc:latest",
   "postCreateCommand": "bundle install",
   "forwardPorts": [4000]
 }
@@ -92,7 +92,7 @@ With a `.devcontainer/Dockerfile`:
 
 [source,dockerfile]
 ----
-FROM tpo42/adoc:latest
+FROM ghcr.io/tpo42/adoc:latest
 COPY fonts/ /usr/share/fonts/custom/
 RUN fc-cache -f
 COPY Gemfile /tmp/Gemfile.project
@@ -126,7 +126,7 @@ No divergence between local and CI environments.
 * Extended setups delegate to the devcontainer ecosystem: declarative, cross-platform, maintained by others
 * Font problems are solved at the container layer via derived Dockerfiles, shared via registry
 * Jekyll serve is a natural fit: `devcontainer up` starts the container, `forwardPorts` handles port mapping, the container stays running
-* The base container `tpo42/adoc` stays focused -- it does not accumulate project-specific extensions
+* The base container `ghcr.io/tpo42/adoc` stays focused -- it does not accumulate project-specific extensions
 * No custom config format (`adcw.yml`) or custom bootstrap tooling needed
 * Derived containers (e.g. for a customer or team) follow standard Docker and devcontainer patterns
 * Future: devcontainer features could provide reusable extensions (e.g. `tpo42/jekyll` as a feature), but this is not required initially

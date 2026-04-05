@@ -121,6 +121,6 @@ WORKDIR /workspace
 CMD ["/bin/bash"]
 
 # Usage examples:
-# docker run --rm -v $(pwd):/workspace tpo42/adoc:latest asciidoctor mydoc.adoc
-# docker run --rm -v $(pwd):/workspace tpo42/adoc:latest asciidoctor-pdf mydoc.adoc  
-# docker run -it --rm -v $(pwd):/workspace tpo42/adoc:latest bash
+# docker run --rm -v $(pwd):/workspace ghcr.io/tpo42/adoc:latest asciidoctor mydoc.adoc
+# docker run --rm -v $(pwd):/workspace ghcr.io/tpo42/adoc:latest asciidoctor-pdf mydoc.adoc
+# docker run -it --rm -v $(pwd):/workspace ghcr.io/tpo42/adoc:latest bash
