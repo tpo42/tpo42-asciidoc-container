@@ -1,0 +1,132 @@
+= ADR-005: Extensibility Strategy -- adcw for Speed, devcontainer for Comfort
+:date: 2026-04-04
+:status: proposed
+
+== Context
+
+The ADCW base container ships a fixed set of AsciiDoc gems and system fonts.
+Real-world projects need capabilities beyond this baseline:
+
+* **Custom PDF themes and fonts** -- projects like a typical customer architecture documentation require fonts with full Unicode coverage (e.g. the `↔` glyph) that the default Noto Serif subset fonts cannot render. Copying font files into every project is not acceptable.
+* **Jekyll with AsciiDoc** -- sites like tpo42.de need `jekyll`, `jekyll-asciidoc`, and theme-specific plugins to serve AsciiDoc-based content. Today this requires a separate container (e.g. `bretfisher/jekyll-serve`) that lacks the AsciiDoc toolchain.
+* **Additional Asciidoctor extensions** -- projects may need gems like `asciidoctor-confluence`, `asciidoctor-mathematical`, or custom extensions not suitable for the base image.
+
+These extensions span different layers: Ruby gems, system fonts, and potentially system packages.
+A single mechanism (e.g. Gemfiles alone) cannot cover all of them.
+
+=== Evaluated alternatives
+
+We considered building custom extensibility tooling (`adcw.yml` + `adcw bootstrap`) but found that the https://containers.dev/[Dev Containers specification] already provides:
+
+* A declarative configuration format (`devcontainer.json`)
+* A mechanism to add capabilities at container start (`postCreateCommand`, `features`)
+* A mechanism to build derived containers (`dockerFile` property)
+* Cross-platform support (Linux, macOS, Windows)
+* An open CLI (`devcontainer up`, `devcontainer exec`) usable outside of VS Code
+* CI integration via https://github.com/devcontainers/ci[devcontainers/ci GitHub Action]
+
+Performance measurement with a trivial AsciiDoc document showed ~1s overhead per `devcontainer exec` call compared to direct `docker run` (Node.js CLI startup).
+This is acceptable for extended workflows and irrelevant for long-running setups like Jekyll serve.
+
+=== Known constraints of the devcontainer ecosystem
+
+The devcontainer CLI and specification come with limitations that should be considered:
+
+**Container runtime support:**
+
+* Docker is the only fully supported runtime.
+* Podman is partially supported (`--docker-path podman`): the CLI has explicit podman detection and code paths, but multiple open issues exist (hangs during `up`, compose project name handling, SELinux/Flatpak issues).
+* nerdctl, finch, and Apple's native `container` framework are untested and have no code paths in the CLI. They might work via `--docker-path` if they implement a Docker-compatible CLI interface, but there is zero guarantee.
+
+This stands in contrast to `adcw`, which supports five container runtimes (container, nerdctl, finch, podman, docker).
+
+**CI platform support:**
+
+* GitHub Actions and Azure DevOps have official support via the https://github.com/devcontainers/ci[devcontainers/ci] action/task.
+* GitLab CI has a https://containers.dev/guide/gitlab-ci[documented guide] on containers.dev using a pre-build pattern (CLI builds and pushes the image; CI jobs reference the pre-built image).
+* Jenkins and Forgejo/Gitea have no dedicated integration -- the CLI must be installed and invoked manually in pipeline scripts.
+* The `devcontainers/ci` GitHub Action is a thin wrapper around the CLI: it installs `@devcontainers/cli`, then calls `devcontainer build`/`up`/`exec`. No special runner infrastructure is required beyond Docker + Node.js.
+
+**Implication:** The devcontainer path works best in Docker-based environments. For teams using podman or other runtimes, the `adcw` fast path remains the more reliable option. The devcontainer specification itself is open and runtime-agnostic -- the constraints are in the current reference CLI implementation, not in the spec.
+
+== Decision
+
+Maintain two complementary paths, both using `tpo42/adoc` as the base image:
+
+=== adcw -- fast path for core operations
+
+`adcw` remains a thin wrapper around `docker run --rm` for quick, single-shot AsciiDoc operations.
+Scripts live in the container (`/usr/local/bin/flatten`, `/usr/local/bin/validate`, etc.), keeping the wrapper minimal.
+
+`adcw` gains a `--image` parameter to allow use of derived container images.
+`adcw serve` is added as a foreground `docker run` with port mapping for simple Jekyll setups.
+
+=== devcontainer -- comfort path for extended setups
+
+For projects that need extensions beyond the base (fonts, Jekyll, custom gems), the recommended path is a `.devcontainer/devcontainer.json`:
+
+==== Simple case: base image with runtime setup
+
+[source,json]
+----
+{
+  "image": "tpo42/adoc:latest",
+  "postCreateCommand": "bundle install",
+  "forwardPorts": [4000]
+}
+----
+
+==== Extended case: derived container with custom fonts
+
+[source,json]
+----
+{
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "forwardPorts": [4000]
+}
+----
+
+With a `.devcontainer/Dockerfile`:
+
+[source,dockerfile]
+----
+FROM tpo42/adoc:latest
+COPY fonts/ /usr/share/fonts/custom/
+RUN fc-cache -f
+COPY Gemfile /tmp/Gemfile.project
+RUN cd /tmp && bundle install --gemfile=Gemfile.project
+----
+
+This derived container is built automatically by `devcontainer up` and can be shared via a container registry.
+
+==== Usage
+
+The devcontainer CLI provides the runtime:
+
+[source,bash]
+----
+devcontainer up --workspace-folder .
+devcontainer exec --workspace-folder . asciidoctor-pdf mydoc.adoc
+devcontainer exec --workspace-folder . flatten -i arch.adoc -o build/arch-flat.adoc
+----
+
+Inside a running devcontainer, scripts in `/usr/local/bin/` are available directly -- no `adcw` wrapper needed.
+
+=== Core principle: one path for dev and CI
+
+Developer workstations use `devcontainer up` + `devcontainer exec`.
+CI pipelines use the same `devcontainer.json` via the https://github.com/devcontainers/ci[devcontainers/ci] GitHub Action (or equivalent).
+No divergence between local and CI environments.
+
+== Consequences
+
+* `adcw` stays lean: a fast `docker run` wrapper for core operations, no bootstrap or config format to maintain
+* Extended setups delegate to the devcontainer ecosystem: declarative, cross-platform, maintained by others
+* Font problems are solved at the container layer via derived Dockerfiles, shared via registry
+* Jekyll serve is a natural fit: `devcontainer up` starts the container, `forwardPorts` handles port mapping, the container stays running
+* The base container `tpo42/adoc` stays focused -- it does not accumulate project-specific extensions
+* No custom config format (`adcw.yml`) or custom bootstrap tooling needed
+* Derived containers (e.g. for a customer or team) follow standard Docker and devcontainer patterns
+* Future: devcontainer features could provide reusable extensions (e.g. `tpo42/jekyll` as a feature), but this is not required initially
