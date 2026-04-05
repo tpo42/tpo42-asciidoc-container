@@ -11,11 +11,13 @@ show_usage() {
 ADCW Validate - AsciiDoc syntax validation
 
 Usage:
-  validate -i <input.adoc> [options]
-  validate -i "*.adoc"      # Validate multiple files
+  validate -i <input> ... [options]
+  validate -i 'adr/*.adoc'                   # Quoted glob (expanded by find)
+  validate -i adr/adr-001.adoc adr/adr-002.adoc  # Shell-expanded file list
 
 Options:
-  -i, --input    Input AsciiDoc file(s) - supports glob patterns
+  -i, --input    Input AsciiDoc file(s) or glob pattern (repeatable)
+  -s, --strict   Abort on missing files instead of skipping them
   -v, --verbose  Verbose output with detailed information
   -h, --help     Show this help message
 
@@ -23,26 +25,31 @@ Description:
   Performs best-effort syntax validation of AsciiDoc files.
   Checks for common issues like:
   - Invalid include paths
-  - Malformed document structure  
+  - Malformed document structure
   - Broken cross-references
   - Diagram syntax errors
 
 Examples:
   validate -i requirements.adoc
-  validate -i "arc42-chapters/*.adoc"
+  validate -i 'arc42-chapters/*.adoc'
   validate -i architecture.adoc --verbose
 EOF
 }
 
 # Parse command line arguments
-INPUT_PATTERN=""
+INPUT_ARGS=()
+STRICT=false
 VERBOSE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -i|--input)
-            INPUT_PATTERN="$2"
+            INPUT_ARGS+=("$2")
             shift 2
+            ;;
+        -s|--strict)
+            STRICT=true
+            shift
             ;;
         -v|--verbose)
             VERBOSE=true
@@ -53,41 +60,52 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "❌ Unknown option: $1"
-            show_usage
-            exit 1
+            # Treat positional arguments as additional input files
+            # (handles shell-expanded globs: validate -i adr/a.adoc adr/b.adoc)
+            INPUT_ARGS+=("$1")
+            shift
             ;;
     esac
 done
 
 # Validate arguments
-if [[ -z "${INPUT_PATTERN}" ]]; then
-    echo "❌ Input pattern required (-i)"
+if [[ ${#INPUT_ARGS[@]} -eq 0 ]]; then
+    echo "❌ Input file(s) or pattern required (-i)"
     show_usage
     exit 1
 fi
 
 echo "🔍 Validating AsciiDoc files..."
-echo "   Pattern: ${INPUT_PATTERN}"
 
 cd /workspace
 
-# Find files matching the pattern
+# Resolve inputs: expand glob patterns via find, pass plain files through
 FILES=()
-if [[ "${INPUT_PATTERN}" == *"*"* ]] || [[ "${INPUT_PATTERN}" == *"?"* ]]; then
-    # Handle glob patterns
-    while IFS= read -r -d '' file; do
-        FILES+=("$file")
-    done < <(find . -name "${INPUT_PATTERN}" -type f -print0 2>/dev/null || true)
-else
-    # Single file
-    if [[ -f "${INPUT_PATTERN}" ]]; then
-        FILES=("${INPUT_PATTERN}")
+for input in "${INPUT_ARGS[@]}"; do
+    if [[ "${input}" == *"*"* ]] || [[ "${input}" == *"?"* ]]; then
+        # Glob pattern — use -path for patterns with directory components,
+        # -name for simple filename globs
+        find_flag="-name"
+        if [[ "${input}" == *"/"* ]]; then
+            find_flag="-path"
+            [[ "${input}" != ./* ]] && input="./${input}"
+        fi
+        while IFS= read -r -d '' file; do
+            FILES+=("$file")
+        done < <(find . ${find_flag} "${input}" -type f -print0 2>/dev/null || true)
+    elif [[ -f "${input}" ]]; then
+        FILES+=("${input}")
+    else
+        if [[ "${STRICT}" == true ]]; then
+            echo "❌ File not found: ${input}"
+            exit 1
+        fi
+        echo "⚠️  Skipping (not found): ${input}"
     fi
-fi
+done
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
-    echo "❌ No files found matching: ${INPUT_PATTERN}"
+    echo "❌ No files found matching: ${INPUT_ARGS[*]}"
     exit 1
 fi
 
