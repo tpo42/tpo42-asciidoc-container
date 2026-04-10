@@ -1,0 +1,25 @@
+= FR-001: Document Correctness Validation
+:date: 2026-04-07
+:status: proposed
+
+== Description
+
+`adcw validate` must verify that a given AsciiDoc compile unit is correct — any warning or error produced during document processing constitutes a validation failure (non-zero exit code).
+
+== Scenarios
+
+[source,gherkin]
+----
+Scenario: Correct document passes validation
+  GIVEN a well-formed AsciiDoc compile unit
+  WHEN adcw validate -i document.adoc
+  THEN no error is reported
+  AND the exit code is zero
+
+Scenario: Document with problems fails validation
+  GIVEN an AsciiDoc compile unit with issues
+    (e.g. unresolved cross-references, broken includes, invalid syntax)
+  WHEN adcw validate -i document.adoc
+  THEN the problems are reported
+  AND the exit code is non-zero
+----
