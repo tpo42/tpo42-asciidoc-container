@@ -16,35 +16,47 @@ Usage:
   validate -i adr/adr-001.adoc adr/adr-002.adoc  # Shell-expanded file list
 
 Options:
-  -i, --input    Input AsciiDoc file(s) or glob pattern (repeatable)
-  -s, --strict   Abort on missing files instead of skipping them
-  -v, --verbose  Verbose output with detailed information
-  -h, --help     Show this help message
+  -i, --input           Input AsciiDoc file(s) or glob pattern (repeatable)
+  -l, --failure-level   Minimum log level that fails validation: INFO, WARN, ERROR, FATAL
+                        (default: WARN; INFO implies --verbose)
+  -s, --strict          Abort on missing files instead of skipping them
+  -v, --verbose         Show asciidoctor DEBUG/INFO messages and additional checks
+  -h, --help            Show this help message
+  --                    Everything after this is passed to asciidoctor
 
 Description:
-  Performs best-effort syntax validation of AsciiDoc files.
-  Checks for common issues like:
-  - Invalid include paths
-  - Malformed document structure
-  - Broken cross-references
-  - Diagram syntax errors
+  Validates AsciiDoc compile units by running them through asciidoctor.
+  Any warning or error produced during document processing constitutes
+  a validation failure (non-zero exit code).
 
 Examples:
   validate -i requirements.adoc
-  validate -i 'arc42-chapters/*.adoc'
-  validate -i architecture.adoc --verbose
+  validate -i architecture.adoc -l INFO          # strict: fail on INFO (implies -v)
+  validate -i 'arc42-chapters/*.adoc' --verbose
+  validate -i doc.adoc -- -a my-attribute        # pass extra flags to asciidoctor
 EOF
 }
 
 # Parse command line arguments
 INPUT_ARGS=()
+ASCIIDOCTOR_EXTRA=()
+FAILURE_LEVEL="WARN"
 STRICT=false
 VERBOSE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --)
+            shift
+            ASCIIDOCTOR_EXTRA=("$@")
+            break
+            ;;
         -i|--input)
             INPUT_ARGS+=("$2")
+            shift 2
+            ;;
+        -l|--failure-level)
+            FAILURE_LEVEL="$2"
             shift 2
             ;;
         -s|--strict)
@@ -67,6 +79,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --failure-level INFO requires asciidoctor --verbose to take effect
+if [[ "${FAILURE_LEVEL}" == "INFO" ]]; then
+    VERBOSE=true
+fi
 
 # Validate arguments
 if [[ ${#INPUT_ARGS[@]} -eq 0 ]]; then
@@ -123,13 +140,23 @@ for file in "${FILES[@]}"; do
     
     echo "📝 Validating: ${file}"
     
-    # Basic syntax validation using asciidoctor
+    # Validate via asciidoctor (resolves includes, conditionals, cross-references)
+    # Use -o - (stdout) instead of --out-file /dev/null: the latter skips rendering
+    # and therefore misses invalid reference checks.
+    asciidoctor_args=(
+        --trace
+        --safe-mode server
+        --failure-level "${FAILURE_LEVEL}"
+        --no-header-footer
+        -o -
+    )
+    if [[ "${VERBOSE}" == true ]]; then
+        asciidoctor_args+=(--verbose)
+    fi
     if asciidoctor \
-        --trace \
-        --safe-mode safe \
-        --no-header-footer \
-        --out-file /dev/null \
-        "${file}" 2>/tmp/validation_output; then
+        "${asciidoctor_args[@]}" \
+        ${ASCIIDOCTOR_EXTRA[@]+"${ASCIIDOCTOR_EXTRA[@]}"} \
+        "${file}" > /dev/null 2>/tmp/validation_output; then
         
         VALID_FILES=$((VALID_FILES + 1))
         echo "   ✅ Valid"
@@ -165,13 +192,13 @@ for file in "${FILES[@]}"; do
         done < <(grep -n "^include::" "${file}" 2>/dev/null || true)
         
         # Check for diagram blocks
-        diagram_blocks=$(grep -c "^\[plantuml\|^\[graphviz\|^\[mermaid" "${file}" 2>/dev/null || echo "0")
+        diagram_blocks=$(grep -Ec "^\[(plantuml|graphviz|mermaid)" "${file}" 2>/dev/null) || true
         if [[ "${diagram_blocks}" -gt 0 ]]; then
             echo "      📊 Diagram blocks found: ${diagram_blocks}"
         fi
-        
+
         # Check for cross-references
-        xrefs=$(grep -c "<<.*>>" "${file}" 2>/dev/null || echo "0")
+        xrefs=$(grep -Ec "<<[^>]+>>" "${file}" 2>/dev/null) || true
         if [[ "${xrefs}" -gt 0 ]]; then
             echo "      🔗 Cross-references found: ${xrefs}"
         fi
