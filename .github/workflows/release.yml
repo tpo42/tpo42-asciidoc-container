@@ -77,3 +77,11 @@ jobs:
           gh release create "${{ steps.version.outputs.new_tag }}" \
             --title "${{ steps.version.outputs.new_tag }}" \
             --notes-file /tmp/release_notes.md
+
+      - name: Trigger container publish with semver tag
+        if: steps.version.outputs.new_tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run container-publish.yml \
+            -f tag=${{ steps.version.outputs.new_tag }}
