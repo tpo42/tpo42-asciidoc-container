@@ -192,14 +192,12 @@ for file in "${FILES[@]}"; do
         done < <(grep -n "^include::" "${file}" 2>/dev/null || true)
         
         # Check for diagram blocks
-        diagram_blocks=$(grep -Ec "^\[(plantuml|graphviz|mermaid)" "${file}" 2>/dev/null) || true
-        if [[ "${diagram_blocks}" -gt 0 ]]; then
+        if diagram_blocks=$(grep -cE "^\[(plantuml|graphviz|mermaid)" "${file}" 2>/dev/null); then
             echo "      📊 Diagram blocks found: ${diagram_blocks}"
         fi
 
         # Check for cross-references
-        xrefs=$(grep -Ec "<<[^>]+>>" "${file}" 2>/dev/null) || true
-        if [[ "${xrefs}" -gt 0 ]]; then
+        if xrefs=$(grep -cE "<<[^>]+>>" "${file}" 2>/dev/null); then
             echo "      🔗 Cross-references found: ${xrefs}"
         fi
     fi
