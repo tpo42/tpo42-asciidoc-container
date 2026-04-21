@@ -76,7 +76,7 @@ if [[ -z "${OUTPUT_DIR}" ]]; then
     exit 1
 fi
 
-if [[ ! -f "/workspace/${INPUT_FILE}" ]]; then
+if [[ ! -f "${INPUT_FILE}" ]]; then
     echo "❌ Input file not found: ${INPUT_FILE}"
     exit 1
 fi
@@ -87,14 +87,12 @@ if [[ "${FORMAT}" != "source" && "${FORMAT}" != "rendered" && "${FORMAT}" != "bo
 fi
 
 # Create output directory
-mkdir -p "/build/${OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR}"
 
 echo "📊 Extracting diagrams from AsciiDoc..."
 echo "   Input:  ${INPUT_FILE}"
 echo "   Output: ${OUTPUT_DIR}"
 echo "   Format: ${FORMAT}"
-
-cd /workspace
 
 # Ruby script to extract diagram blocks
 cat > /tmp/extract_diagrams.rb << 'RUBY'
@@ -185,20 +183,20 @@ RUBY
 # Execute extraction
 ruby /tmp/extract_diagrams.rb \
     "${INPUT_FILE}" \
-    "/build/${OUTPUT_DIR}" \
+    "${OUTPUT_DIR}" \
     "${FORMAT}"
 
 echo ""
 echo "✅ Diagram extraction complete! 📊"
 echo ""
 echo "Output location:"
-echo "  /build/${OUTPUT_DIR}"
+echo "  ${OUTPUT_DIR}"
 echo ""
 
 # List extracted files
-if ls "/build/${OUTPUT_DIR}"/* >/dev/null 2>&1; then
+if ls "${OUTPUT_DIR}"/* >/dev/null 2>&1; then
     echo "Extracted files:"
-    ls -la "/build/${OUTPUT_DIR}" | sed 's/^/  /'
+    ls -la "${OUTPUT_DIR}" | sed 's/^/  /'
 else
     echo "💡 No diagrams were extracted"
     echo ""
