@@ -13,7 +13,15 @@ ADCW — AsciiDoc Container Wrapper for the tpo42 Framework. See [README.md](REA
 ./bin/adcw <command> # run a command (flatten, validate, extract-diagrams, asciidoctor, asciidoctor-pdf, shell, ...)
 ```
 
-There is no test suite, Makefile, linter, or CI pipeline.
+Local gates — run both before committing:
+
+```bash
+bash test/shell-function.bash                        # sources bin/adcw, tests internals
+shellcheck -x -P bin -P lib bin/adcw bin/adcbw lib/adcw-common.bash
+```
+
+There is no Makefile. CI (`.github/workflows/`) only builds/publishes the
+container and cuts releases — it runs neither the tests nor shellcheck.
 
 ## Key Conventions
 

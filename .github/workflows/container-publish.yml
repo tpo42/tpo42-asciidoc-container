@@ -47,6 +47,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Test script syntax
+        run: |
+          bash -n bin/adcw
+          bash -n bin/adcbw
+          bash -n lib/adcw-common.bash
+          echo "Syntax OK"
+
+      - name: Test adcw
+        run: test/shell-function.bash
+
       - name: Validate ADRs
         run: |
           docker run --rm \

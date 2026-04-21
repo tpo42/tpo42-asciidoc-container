@@ -6,83 +6,40 @@ set -e
 set -u
 set -o pipefail
 
-_BUILDER_MISSING_BUILDER="Unable to locate a docker / podman installation on this system.
+# Resolve lib directory — ADC_PROJECT_HOME (contributor/brew) or relative to this script
+: "${ADC_PROJECT_HOME:=$(realpath "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")}"
+_ADCW_LIB_DIR="${ADC_PROJECT_HOME}/lib"
 
-Please install it preferably using your distribution's package
-management system.
-
-Example (Debian and derivatives, such as Ubuntu):
-
-    # apt install podman
-
-Example (Fedora, RHEL, etc.):
-
-    # dnf install podman
-
-Docker also provides pre-built binary packages in various formats at:
-https://docs.docker.com/engine/install/#server.
-"
-
-_BUILDER_MISSING_GIT="Unable to locate a Git installation on this system.
-
-Please install it preferably using your distribution's package
-management system.
-
-Example (Debian and derivatives, such as Ubuntu):
-
-    # apt install git
-
-Example (Fedora, RHEL, etc.):
-
-    # dnf install git
-"
-
-exit_error() {
-    echo "❌ Error: $1" >&2
+if [[ ! -f "${_ADCW_LIB_DIR}/adcw-common.bash" ]]; then
+    echo "Error: Cannot find lib/adcw-common.bash (ADC_PROJECT_HOME=${ADC_PROJECT_HOME})" >&2
     exit 1
-}
-
-# Check for installed Git
-if [[ -z "${_BUILDER_GIT_BIN:-}" ]] ; then
-    _BUILDER_GIT_BIN="$(command -v git)" ||
-        exit_error "${_BUILDER_MISSING_GIT}"
 fi
 
-# shellcheck disable=SC2046,SC2086
-: "${WORK_TREE:=$(realpath $(dirname $(dirname ${BASH_SOURCE[0]})))}"
-: "${GIT_DIR:=${WORK_TREE}/.git}"
+# shellcheck source=../lib/adcw-common.bash
+source "${_ADCW_LIB_DIR}/adcw-common.bash"
 
-# shellcheck disable=SC2086
-: "${CONTAINER_TAG:=$(${_BUILDER_GIT_BIN} --git-dir=${GIT_DIR} --work-tree=${WORK_TREE} describe --all --always --dirty | sed -e 's,^heads/,,g' | sed -e 's,^main$,latest,g' | tr / -)}"
+_adcw_detect_runner
+_adcw_detect_tag
 
-# Check for installed docker / podman
-if [[ -z "${_BUILDER_BIN:-}" ]] ; then
-    _BUILDER_BIN="$(command -v container)" ||   # Apple's native (macOS 26+)
-    _BUILDER_BIN="$(command -v nerdctl)" ||     # containerd native
-    _BUILDER_BIN="$(command -v finch)" ||       # AWS alternative
-    _BUILDER_BIN="$(command -v podman)" ||      # Red Hat standard
-    _BUILDER_BIN="$(command -v docker)" ||      # Traditional
-        exit_error "${_BUILDER_MISSING_BUILDER}"
-fi
+CONTAINER_IMAGE="tpo42/adoc:${CONTAINER_TAG}"
 
-echo "🏗️  Building ADCW Container: tpo42/adoc:${CONTAINER_TAG}"
-echo "   Using: ${_BUILDER_BIN}"
+echo "Building ADCW Container: ${CONTAINER_IMAGE}"
+echo "   Using: ${_ADCW_CONTAINER_RUNNER_BIN}"
 
-# Build container with proper user mapping
-${_BUILDER_BIN} buildx build \
+${_ADCW_CONTAINER_RUNNER_BIN} buildx build \
     --build-arg=USER_UID="$(id -u)" \
     --build-arg=USER_GID="$(id -g)" \
     --build-arg=USER_NAME="$(id -un)" \
     --build-arg=USER_GROUP_NAME="$(id -gn)" \
-    --file "${WORK_TREE}/container/Containerfile" \
-    --tag="tpo42/adoc:${CONTAINER_TAG}" \
-    "${WORK_TREE}/container"
+    --file "${ADC_PROJECT_HOME}/container/Containerfile" \
+    --tag="${CONTAINER_IMAGE}" \
+    "${ADC_PROJECT_HOME}/container"
 
-echo "✅ Container built successfully!"
+echo "Container built successfully!"
 echo ""
 echo "Usage:"
 echo "  ./bin/adcw shell                                           # Interactive shell"
 echo "  ./bin/adcw flatten -i mydoc.adoc -o mydoc-flattened.adoc   # Flatten includes"
 echo "  ./bin/adcw validate -i mydoc.adoc                          # Validate syntax"
 echo ""
-echo "Container: tpo42/adoc:${CONTAINER_TAG}"
+echo "Container: ${CONTAINER_IMAGE}"

@@ -1,0 +1,131 @@
+= ADR-006: Shell Completion Strategy
+:date: 2026-04-21
+:status: accepted
+:updated: 2026-05-06
+:see-also: ADR-007 (unified script architecture)
+
+== Context
+
+The `adcw` shell function (`lib/adcw-function.bash`) provides a unified interface
+for AsciiDoc operations across different execution contexts (Docker Compose,
+devcontainer, direct container). Users source this file in their shell
+configuration.
+
+Two architectural decisions arise:
+
+1. **Which shells to support** -- macOS defaults to zsh since Catalina (2019).
+   Linux distributions vary (bash, zsh, ksh). The function must work reliably
+   across common shells.
+
+2. **How to provide shell completion** -- Completion mechanisms differ fundamentally
+   between shells. Bash uses `complete -F`, zsh uses `compdef`/`_arguments`, ksh
+   has yet another approach.
+
+== Decision
+
+=== Supported shells
+
+We officially support **bash** and **zsh**. These cover:
+
+* macOS default (zsh) and common alternative (bash via Homebrew)
+* Most Linux distributions (bash default, zsh common)
+* Windows WSL (typically bash or zsh)
+
+The core function syntax (`[[ ]]`, `local`, arrays) works in **ksh93** and
+**mksh** as well, but we do not test or document these. Users of ksh variants
+can use the function without completion.
+
+**POSIX sh** (dash, ash, busybox sh) is not supported out-of-the-box -- the
+function relies on non-POSIX features. Patches to add POSIX compatibility are
+welcome and will be maintained.
+
+=== Completion strategy: Dedicated files
+
+Following the pattern established by Homebrew and most Unix tools, we provide
+**separate completion files** for each shell:
+
+[source]
+----
+bin/
+  adcw                    # Unified script (ADR-007)
+lib/
+  completions/
+    adcw.bash             # Bash completion
+    _adcw                 # Zsh completion (underscore prefix convention)
+----
+
+Rationale:
+
+* **Clear separation** -- Function logic vs. shell-specific completion are
+  independent concerns.
+* **Standard locations** -- Users can symlink completions to standard paths
+  (`/usr/share/bash-completion/completions/`, `/usr/share/zsh/site-functions/`).
+* **Easier maintenance** -- Each completion file uses idiomatic syntax for its
+  shell without conditionals or compatibility shims.
+* **Homebrew alignment** -- Follows the same pattern, making future packaging
+  straightforward.
+
+=== Installation
+
+With `adcw` in `PATH` (e.g. via Homebrew or `ADC_PROJECT_HOME/bin`), users
+only need to load completions:
+
+.~/.bashrc
+[source,bash]
+----
+source "${HOMEBREW_PREFIX}/etc/bash_completion.d/adcw.bash"
+# or, if using ADC_PROJECT_HOME:
+source "${ADC_PROJECT_HOME}/lib/completions/adcw.bash"
+----
+
+.~/.zshrc
+[source,zsh]
+----
+fpath=("${HOMEBREW_PREFIX}/share/zsh/site-functions" $fpath)
+# or, if using ADC_PROJECT_HOME:
+fpath=("${ADC_PROJECT_HOME}/lib/completions" $fpath)
+autoload -Uz _adcw
+----
+
+== Consequences
+
+=== Positive
+
+* Broad compatibility without complex shell detection logic
+* Clean, maintainable codebase with idiomatic code per shell
+* Easy path to package managers (Homebrew formula, Linux packages)
+* Users get proper completion in their preferred shell
+
+=== Negative
+
+* Three files to maintain instead of one (minor overhead)
+* ksh users get no completion (acceptable given user base)
+* Users must source two files or set up fpath (slightly more setup)
+
+== Alternatives considered
+
+=== Single file with shell detection
+
+[source,bash]
+----
+if [[ -n "${BASH_VERSION:-}" ]]; then
+    complete -F _adcw_completions adcw
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+    compdef _adcw adcw
+fi
+----
+
+Rejected: Mixes concerns, harder to test, zsh completion idioms differ
+significantly from bash (not just the registration command).
+
+=== Completion embedded in function file
+
+The current state before this ADR. Rejected because it fails in zsh (`complete`
+command not found) and would require maintaining two completion implementations
+in one file with conditionals.
+
+=== POSIX-only function
+
+Would require replacing `[[ ]]` with `[ ]`, removing `local`, using positional
+parameters instead of arrays. Not pursued due to significant complexity, but
+patches are welcome.
