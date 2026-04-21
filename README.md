@@ -83,6 +83,74 @@ devcontainer exec --workspace-folder . flatten -i arch.adoc -o build/arch-flat.a
 
 Developer workstations and CI pipelines use the same `devcontainer.json` -- there is no separate setup path. See [ADR-005](adr/adr-005.adoc) for the full rationale.
 
+## Execution Contexts
+
+With `adcw` in your PATH, it auto-detects the execution context:
+
+| Context | Detection | Execution |
+|---------|-----------|-----------|
+| Docker Compose | `docker-compose.yml` in cwd | `docker compose exec <service> ...` |
+| Devcontainer | `.devcontainer/devcontainer.json` with tpo42/adoc | `devcontainer exec ...` |
+| Dedicated container | Container runtime available | `<runtime> run ... tpo42/adoc:<tag> ...` |
+
+See [ADR-007](adr/adr-007.adoc) for the design rationale.
+
+### Setup
+
+Add `bin/` to your PATH, or install via Homebrew (when available). Optionally load completions:
+
+**Bash (~/.bashrc):**
+```bash
+ADC_PROJECT_HOME=~/src/tpo42-asciidoc-container   # your checkout
+source "${ADC_PROJECT_HOME}/lib/completions/adcw.bash"
+```
+
+**Zsh (~/.zshrc):**
+```zsh
+ADC_PROJECT_HOME=~/src/tpo42-asciidoc-container   # your checkout
+fpath=("${ADC_PROJECT_HOME}/lib/completions" $fpath)
+autoload -Uz _adcw
+```
+
+Set the variable in the same file. `bin/adcw` derives it for itself when it runs, but the
+shell expands these lines long before that — unset, they read from `/lib/completions/`.
+
+See [ADR-006](adr/adr-006.adoc) for shell completion details.
+
+### Configuration
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ADC_PROJECT_HOME` | Path to tpo42-asciidoc-container checkout | auto-detected from script location |
+| `ADOC_COMPOSE` | Explicit docker-compose.yml path | auto-detect |
+| `ADOC_SERVICE` | Service name in compose file | auto-detected |
+| `ADOC_WORKSPACE` | Workspace folder for devcontainer | `.` |
+| `CONTAINER_TAG` | Explicit container tag | git describe or `latest` |
+| `CONTAINER_IMAGE` | Explicit full image reference | `tpo42/adoc:<tag>` |
+
+### Examples
+
+```bash
+# In a project with docker-compose.yml containing an 'adoc' service
+cd ~/project
+adcw validate -i doc.adoc              # uses docker compose exec
+
+# Service name is auto-detected from docker-compose.yml (e.g., xodos-adoc)
+# Override if needed:
+ADOC_SERVICE=custom-service adcw validate -i doc.adoc
+
+# Explicit compose file
+adcw -f ~/other/docker-compose.yml validate -i doc.adoc
+
+# In a project with .devcontainer/devcontainer.json
+cd ~/website
+adcw asciidoctor-pdf article.adoc      # uses devcontainer exec
+
+# Anywhere else (falls back to direct container execution)
+cd /tmp
+adcw flatten -i /path/to/doc.adoc -o flat.adoc
+```
+
 ## Container Stack
 
 ```
@@ -136,10 +204,17 @@ tpo42-asciidoc-container/
 │   ├── adr-002.adoc             Remove pre-commit from container
 │   ├── adr-003.adoc             Upgrade Bundler to 4.x
 │   ├── adr-004.adoc             Include EPUB3 capability
-│   └── adr-005.adoc             Extensibility: adcw + devcontainer
+│   ├── adr-005.adoc             Extensibility: adcw + devcontainer
+│   ├── adr-006.adoc             Shell completion strategy
+│   └── adr-007.adoc             Unified script architecture
 ├── bin/
 │   ├── adcbw                     Build wrapper
-│   └── adcw                      CLI wrapper (command dispatcher)
+│   └── adcw                      CLI wrapper (unified, ADR-007)
+├── lib/
+│   ├── adcw-common.bash          Shared infrastructure (runner, tag)
+│   └── completions/
+│       ├── adcw.bash             Bash completion
+│       └── _adcw                 Zsh completion
 ├── container/
 │   ├── Containerfile            Container build definition
 │   ├── Gemfile                  Base gem dependencies
@@ -190,6 +265,7 @@ All significant decisions are documented as ADRs in `adr/`:
 - **ADR-003**: Upgrade Bundler pin from ~> 2.0 to ~> 4.0
 - **ADR-004**: Include experimental EPUB3 generation capability
 - **ADR-005**: Extensibility strategy -- adcw for speed, devcontainer for comfort
+- **ADR-006**: Shell function compatibility and completion strategy
 
 ## tpo42 Framework
 

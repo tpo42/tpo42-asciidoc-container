@@ -1,0 +1,43 @@
+#compdef adcw
+# Zsh completion for adcw
+# Add lib/completions to fpath and run: autoload -Uz _adcw
+
+local -a commands
+commands=(
+    'flatten:Resolve all includes to self-contained document'
+    'validate:Syntax validation of AsciiDoc files'
+    'extract-diagrams:Extract diagram sources for analysis'
+    'shell:Interactive container shell'
+    'asciidoctor:Run asciidoctor directly (HTML output)'
+    'asciidoctor-pdf:Generate PDF documents'
+    'asciidoctor-reducer:Run asciidoctor-reducer directly'
+    'help:Show help message'
+)
+
+# Helper: complete .adoc files and directories
+_adcw_adoc_files() {
+    _files -g '*.adoc' && _files -g '*(-/)'
+}
+
+_arguments -C \
+    '-f[Use specific docker-compose.yml]:compose file:_files -g "*.y(a|)ml"' \
+    '1:command:->command' \
+    '*::args:->args'
+
+case "$state" in
+    command)
+        _describe -t commands 'adcw command' commands
+        ;;
+    args)
+        case "${words[1]}" in
+            flatten|validate|extract-diagrams)
+                _arguments \
+                    '-i[Input file or pattern]:input:_adcw_adoc_files' \
+                    '-o[Output file or directory]:output:_files'
+                ;;
+            asciidoctor|asciidoctor-pdf|asciidoctor-reducer)
+                _adcw_adoc_files
+                ;;
+        esac
+        ;;
+esac
