@@ -70,14 +70,14 @@ if [[ -z "${OUTPUT_FILE}" ]]; then
     exit 1
 fi
 
-if [[ ! -f "/workspace/${INPUT_FILE}" ]]; then
+if [[ ! -f "${INPUT_FILE}" ]]; then
     echo "❌ Input file not found: ${INPUT_FILE}"
     exit 1
 fi
 
 # Create output directory if needed
 OUTPUT_DIR=$(dirname "${OUTPUT_FILE}")
-mkdir -p "/build/${OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR}"
 
 echo "📄 Flattening AsciiDoc includes..."
 echo "   Input:  ${INPUT_FILE}"
@@ -85,19 +85,17 @@ echo "   Output: ${OUTPUT_FILE}"
 
 # Use asciidoctor-reducer to resolve includes and output flattened AsciiDoc
 # This preserves diagram sources while resolving all includes - perfect for LLM context!
-cd /workspace
-
 echo "   Using asciidoctor-reducer for include resolution..."
 
 # asciidoctor-reducer is the official tool for this exact use case
 asciidoctor-reducer \
-    --output "/build/${OUTPUT_FILE}" \
+    --output "${OUTPUT_FILE}" \
     --preserve-conditionals \
     "${INPUT_FILE}"
 
 echo "✅ Flattening complete!"
 echo ""
 echo "Self-contained document created:"
-echo "  /build/${OUTPUT_FILE}"
+echo "  ${OUTPUT_FILE}"
 echo ""
 echo "Ready for LLM context or analysis! 🤖"

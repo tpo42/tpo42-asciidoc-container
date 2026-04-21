@@ -94,8 +94,6 @@ fi
 
 echo "🔍 Validating AsciiDoc files..."
 
-cd /workspace
-
 # Resolve inputs: expand glob patterns via find, pass plain files through
 FILES=()
 for input in "${INPUT_ARGS[@]}"; do
