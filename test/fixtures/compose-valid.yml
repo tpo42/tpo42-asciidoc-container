@@ -1,0 +1,3 @@
+services:
+  adoc:
+    image: tpo42/adoc
