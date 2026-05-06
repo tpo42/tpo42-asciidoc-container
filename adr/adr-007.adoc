@@ -1,0 +1,117 @@
+= ADR-007: Unified Script Architecture for Container Wrappers
+:date: 2026-05-06
+:status: accepted
+:supersedes: Partially supersedes ADR-006 (shell function separation)
+
+== Context
+
+The adcw toolchain evolved through three stages:
+
+1. **`bin/adcw` as direct container runner** -- a standalone script that resolved
+   the container tag via `git describe`, detected the container runtime, and
+   executed `docker run` directly. Required a git checkout to function.
+
+2. **`lib/adcw-function.bash` as shell function** -- a sourceable function for
+   `.bashrc` that added compose and devcontainer dispatch, with fallback to
+   `bin/adcw`. This created two entry points with duplicated command mapping
+   (three `case` blocks for the same set of commands).
+
+3. **Shared infrastructure via `lib/adcw-common.bash`** -- extracted the
+   duplicated runner detection, tag resolution, and error messages. `bin/adcw`
+   became a thin wrapper that sourced the function and called `adcw "$@"`.
+
+Stage 3 revealed that the split between `bin/adcw` and `lib/adcw-function.bash`
+no longer served a purpose: the script was just a passthrough to the function,
+and the function contained all the logic. The indirection added complexity
+without benefit.
+
+Additionally, planning for Homebrew deployment (separate tap repositories)
+showed that a single script in `${HOMEBREW_PREFIX}/bin/` is the simplest
+deployment unit -- no `source` in `.bashrc` needed, no `ADCW_HOME` to configure.
+
+== Decision
+
+Merge all dispatch logic into `bin/adcw` as a single self-contained script.
+
+=== Architecture
+
+`bin/adcw` contains:
+
+* Three execution modes behind a unified `cmd_prefix` string:
+  - **Compose**: `${compose_cmd} -f '...' exec '${service}'`
+  - **Devcontainer**: `devcontainer exec --workspace-folder '...'`
+  - **Dedicated container**: `${runner} run --rm --interactive --tty --volume '...' '${image}'`
+* A single command dispatch that uses `exec ${cmd_prefix}` to replace the shell
+  process (zero overhead for the final command).
+* A `BASH_SOURCE` guard at the bottom, so the script can be sourced in tests
+  for unit-testing internal functions.
+
+`lib/adcw-common.bash` remains shared with `bin/adcbw` (build wrapper):
+
+* Error messages for missing runtime / git
+* `_adcw_detect_runner` -> `_ADCW_CONTAINER_RUNNER_BIN`
+* `_adcw_detect_tag` -> `CONTAINER_TAG` (env -> git describe -> "latest")
+
+`lib/adcw-function.bash` is removed.
+
+=== Environment variables
+
+[cols="1,3"]
+|===
+| `ADC_PROJECT_HOME` | Path to tpo42-asciidoc-container checkout (contributor).
+  Used for git-based tag resolution and Containerfile location in `adcbw`.
+| `ADOC_COMPOSE` | Path to docker-compose.yml (alternative to `-f` flag).
+| `ADOC_SERVICE` | Service name in compose file (auto-detected from image).
+| `ADOC_WORKSPACE` | Workspace folder for devcontainer (default: `.`).
+| `CONTAINER_TAG` | Explicit override, skips all detection.
+| `CONTAINER_IMAGE` | Explicit full image reference, skips tag logic entirely.
+|===
+
+`ADCW_HOME` is retired. For Homebrew deployment, `bin/adcw` lives in
+`${HOMEBREW_PREFIX}/bin/` and needs no additional configuration.
+
+=== Testability
+
+The `BASH_SOURCE` guard enables two testing modes:
+
+[source,bash]
+----
+# Blackbox: run as script
+bin/adcw --help | grep -q "AsciiDoc Container Wrapper"
+
+# Whitebox: source and call internals
+source bin/adcw
+_adcw_find_adoc_service "test/fixtures/compose-valid.yml"
+----
+
+=== Completion files
+
+Completion files remain separate in `lib/completions/` per ADR-006. They work
+identically whether `adcw` is a shell function or a script -- `complete -F`
+and `compdef` bind to the command name, not the implementation.
+
+== Consequences
+
+=== Positive
+
+* Single entry point, single file to deploy (Homebrew: just `bin/adcw`)
+* No `.bashrc` sourcing needed -- `adcw` is a regular command in `PATH`
+* `exec` replaces the shell process, eliminating subprocess overhead
+* No namespace pollution (`_adcw_*` functions stay in the script scope)
+* Internal functions remain testable via `source` + `BASH_SOURCE` guard
+* `cmd_prefix` pattern eliminates triplicated command dispatch
+
+=== Negative
+
+* Script fork per invocation (negligible -- all modes exec into external
+  commands immediately)
+* `adcw-common.bash` is still a separate file (shared with `adcbw`)
+
+== Applicability to docToolchain
+
+This architecture applies directly to `dtcw` / `docker-docToolchain`:
+
+* `bin/dtcw` as unified script with `cmd_prefix` dispatch
+* `lib/dtcw-common.bash` shared with `bin/dtcbw`
+* `DTCW_LOCATION` / `DTC_PROJECT_HOME` follow the same pattern
+* Homebrew tap deploys `bin/dtcw` to `${HOMEBREW_PREFIX}/bin/`

@@ -1,196 +1,257 @@
 #!/bin/bash
-# ADCW - AsciiDoc Container Wrapper  
-# Main CLI for AsciiDoc operations with robust error handling
+# ADCW - AsciiDoc Container Wrapper (ADR-007)
+#
+# Single-script CLI that auto-detects the execution context:
+#   1. docker-compose.yml → compose exec
+#   2. .devcontainer/devcontainer.json with tpo42/adoc → devcontainer exec
+#   3. Dedicated container → container-runtime run
+#
+# Each mode builds a cmd_prefix string; the command dispatch is shared.
+# See ADR-007 for the design rationale and the path from shell function
+# to unified script.
+#
+# Sourceable for tests: [[ "${BASH_SOURCE[0]}" == "$0" ]] guard at bottom.
+#
+# Environment variables (all optional):
+#   ADC_PROJECT_HOME — Path to tpo42-asciidoc-container checkout (contributor)
+#   ADOC_COMPOSE     — Path to docker-compose.yml (alternative to -f)
+#   ADOC_SERVICE     — Service name in compose file (auto-detected from image)
+#   ADOC_WORKSPACE   — Workspace folder for devcontainer (default: .)
+#   CONTAINER_TAG    — Explicit override for container tag
+#   CONTAINER_IMAGE  — Explicit override for full image reference
 
 set -e
-set -u  
+set -u
 set -o pipefail
 
-_RUNNER_MISSING_RUNNER="Unable to locate a container runtime installation on this system.
+# Resolve lib directory — ADC_PROJECT_HOME or relative to this script
+: "${ADC_PROJECT_HOME:=$(realpath "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")}"
+_ADCW_LIB_DIR="${ADC_PROJECT_HOME}/lib"
 
-Please install it preferably using your distribution's package
-management system.
-
-Example (Debian and derivatives, such as Ubuntu):
-
-    # apt install podman
-
-Example (Fedora, RHEL, etc.):
-
-    # dnf install podman
-
-Example (macOS 26+ with native container support):
-
-    # Already included in macOS 26 "Tahoe"
-
-Docker also provides pre-built binary packages in various formats at:
-https://docs.docker.com/engine/install/#server.
-
-Alternative container runtimes:
-- nerdctl: containerd-native CLI
-- podman: daemonless container engine
-- container: Apple's native framework (macOS 26+)
-"
-
-_RUNNER_MISSING_GIT="Unable to locate a Git installation on this system.
-
-Please install it preferably using your distribution's package
-management system.
-
-Example (Debian and derivatives, such as Ubuntu):
-
-    # apt install git
-
-Example (Fedora, RHEL, etc.):
-
-    # dnf install git
-"
-
-exit_error() {
-    echo "❌ Error: $1" >&2
+if [[ ! -f "${_ADCW_LIB_DIR}/adcw-common.bash" ]]; then
+    echo "Error: Cannot find lib/adcw-common.bash (ADC_PROJECT_HOME=${ADC_PROJECT_HOME})" >&2
     exit 1
-}
-
-# Check for installed Git
-if [[ -z "${_RUNNER_GIT_BIN:-}" ]] ; then
-    _RUNNER_GIT_BIN="$(command -v git)" ||
-        exit_error "${_RUNNER_MISSING_GIT}"
 fi
 
-# shellcheck disable=SC2046,SC2086
-: "${WORK_TREE:=$(realpath $(dirname $(dirname ${BASH_SOURCE[0]})))}"
-: "${GIT_DIR:=${WORK_TREE}/.git}"
+# shellcheck source=../lib/adcw-common.bash
+source "${_ADCW_LIB_DIR}/adcw-common.bash"
 
-# Generate container tag from git describe
-# shellcheck disable=SC2086  
-: "${CONTAINER_TAG:=$(${_RUNNER_GIT_BIN} --git-dir=${GIT_DIR} --work-tree=${WORK_TREE} describe --all --always --dirty | sed -e 's,^heads/,,g' | sed -e 's,^main$,latest,g' | tr / -)}"
+# --- Main entry point ---
 
-# Check for installed docker / podman / container
-if [[ -z "${_RUNNER_BIN:-}" ]] ; then
-    _RUNNER_BIN="$(command -v container)" ||    # Apple's native (macOS 26+)
-    _RUNNER_BIN="$(command -v nerdctl)" ||      # containerd native
-    _RUNNER_BIN="$(command -v finch)" ||        # AWS alternative
-    _RUNNER_BIN="$(command -v podman)" ||       # Red Hat standard
-    _RUNNER_BIN="$(command -v docker)" ||       # Traditional fallback
-        exit_error "${_RUNNER_MISSING_RUNNER}"
-fi
-
-# Container configuration
-CONTAINER_IMAGE="tpo42/adoc:${CONTAINER_TAG}"
-RESOURCES_DIR="${WORK_TREE}/resources"
-
-# Create build directory if needed
-test -d "${PWD}/build" || mkdir -p "${PWD}/build"
-
-# Docker run base command
-docker_run() {
-    ${_RUNNER_BIN} run \
-        --rm --interactive \
-        --volume "${PWD}:/workspace" \
-        --volume "${PWD}/build:/build" \
-        "${CONTAINER_IMAGE}" \
-        "$@"
-}
-
-# Docker run with TTY for interactive commands
-docker_run_tty() {
-    ${_RUNNER_BIN} run \
-        --rm --interactive --tty \
-        --volume "${PWD}:/workspace" \
-        --volume "${PWD}/build:/build" \
-        "${CONTAINER_IMAGE}" \
-        "$@"
-}
-
-# Show usage information
-show_usage() {
-    cat << 'EOF'
-ADCW - AsciiDoc Container Wrapper
-
-Usage:
-  adcw <command> [options]
-
-Commands:
-  flatten       Resolve all includes to self-contained document
-  validate      Syntax validation of AsciiDoc files
-  extract-diagrams  Extract diagram sources for analysis
-  shell         Interactive container shell
-  
-  asciidoctor   Run asciidoctor directly
-  asciidoctor-pdf  Run asciidoctor-pdf directly
-  asciidoctor-reducer  Run asciidoctor-reducer directly
-
-Examples:
-  adcw flatten -i requirements.adoc -o build/requirements-flat.adoc
-  adcw validate -i architecture.adoc
-  adcw extract-diagrams -i overview.adoc -o build/diagrams/
-  adcw shell
-  adcw asciidoctor -a toc=left mydoc.adoc
-  adcw asciidoctor-reducer --output flat.adoc input.adoc
-
-Options:
-  -h, --help    Show this help message
-
-Environment:
-  CONTAINER_TAG Current container tag: ${CONTAINER_TAG}
-EOF
-}
-
-# Check if container exists
-check_container() {
-    if ! ${_RUNNER_BIN} image inspect "${CONTAINER_IMAGE}" >/dev/null 2>&1; then
-        echo "❌ Container ${CONTAINER_IMAGE} not found!"
-        echo ""
-        echo "Build it first:"
-        echo "  ./bin/adcbw"
-        echo ""
-        exit 1
+adcw() {
+    if [[ $# -eq 0 ]] || [[ "$1" == "help" ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+        _adcw_show_usage
+        return 0
     fi
-}
 
-# Main command dispatcher
-main() {
-    if [ $# -eq 0 ]; then
-        show_usage
-        exit 1
+    local compose_file=""
+    local service="${ADOC_SERVICE:-}"
+    local workspace="${ADOC_WORKSPACE:-.}"
+    local args=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -f)
+                if [[ -n "${2:-}" ]]; then
+                    compose_file="$2"
+                    shift 2
+                else
+                    echo "Error: -f requires a path argument" >&2
+                    return 1
+                fi
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    set -- ${args[@]+"${args[@]}"}
+
+    # Determine execution mode and build cmd_prefix
+    local cmd_prefix=""
+
+    local compose_path=""
+    if [[ -n "${compose_file}" ]]; then
+        if [[ -f "${compose_file}" ]]; then
+            compose_path="${compose_file}"
+        else
+            echo "Error: Compose file not found: ${compose_file}" >&2
+            return 1
+        fi
+    elif [[ -n "${ADOC_COMPOSE:-}" ]]; then
+        if [[ -f "${ADOC_COMPOSE}" ]]; then
+            compose_path="${ADOC_COMPOSE}"
+        else
+            echo "Error: ADOC_COMPOSE file not found: ${ADOC_COMPOSE}" >&2
+            return 1
+        fi
+    elif [[ -f "docker-compose.yml" ]]; then
+        compose_path="docker-compose.yml"
+    elif [[ -f "docker-compose.yaml" ]]; then
+        compose_path="docker-compose.yaml"
+    fi
+
+    if [[ -n "${compose_path}" ]]; then
+        _adcw_setup_compose || return 1
+        cmd_prefix="${_adcw_compose_cmd} -f '${compose_path}' exec '${service}'"
+    elif [[ -f ".devcontainer/devcontainer.json" ]] \
+      && grep -qE '"image"[[:space:]]*:[[:space:]]*"(ghcr\.io/)?tpo42/adoc' ".devcontainer/devcontainer.json"; then
+        _adcw_setup_devcontainer || return 1
+        cmd_prefix="devcontainer exec --workspace-folder '${workspace}'"
+    else
+        _adcw_setup_spec_container || return 1
+        cmd_prefix="${_ADCW_CONTAINER_RUNNER_BIN} run --rm --interactive --tty --volume '${PWD}:/workspace' --volume '${PWD}/build:/build' '${CONTAINER_IMAGE}'"
+    fi
+
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: adcw <command> [options]" >&2
+        return 1
     fi
 
     local command="$1"
     shift
 
     case "${command}" in
-        flatten)
-            check_container
-            docker_run /usr/local/bin/flatten "$@"
-            ;;
-        validate)
-            check_container
-            docker_run /usr/local/bin/validate "$@"
-            ;;
-        extract-diagrams)
-            check_container
-            docker_run /usr/local/bin/extract-diagrams "$@"
+        flatten|validate|extract-diagrams)
+            exec ${cmd_prefix} "/usr/local/bin/${command}" "$@"
             ;;
         shell)
-            check_container
-            echo "🐚 Starting interactive ADCW shell..."
-            echo "   Using: ${_RUNNER_BIN}"
-            docker_run_tty /bin/bash
+            exec ${cmd_prefix} /bin/bash
             ;;
         asciidoctor|asciidoctor-pdf|asciidoctor-reducer)
-            check_container
-            docker_run "${command}" "$@"
+            exec ${cmd_prefix} "${command}" "$@"
             ;;
         help|-h|--help)
-            show_usage
+            _adcw_show_usage
             ;;
         *)
-            echo "❌ Unknown command: ${command}"
-            echo ""
-            show_usage
-            exit 1
+            echo "Unknown command: ${command}" >&2
+            _adcw_show_usage
+            return 1
             ;;
     esac
 }
 
-main "$@"
+# --- Mode setup ---
+
+_adcw_setup_compose() {
+    if [[ -z "${service}" ]]; then
+        service="$(_adcw_find_adoc_service "${compose_path}")"
+        if [[ -z "${service}" ]]; then
+            echo "Error: No service with tpo42/adoc image found in ${compose_path}" >&2
+            echo "Set ADOC_SERVICE explicitly if the service uses a different image name." >&2
+            return 1
+        fi
+    fi
+    _adcw_compose_cmd="$(_adcw_find_compose_cmd)" || return 1
+}
+
+_adcw_setup_devcontainer() {
+    if ! command -v devcontainer >/dev/null 2>&1; then
+        echo "Error: devcontainer CLI not found" >&2
+        echo "Install it via: npm install -g @devcontainers/cli" >&2
+        return 1
+    fi
+}
+
+_adcw_setup_spec_container() {
+    _adcw_detect_runner || return 1
+    _adcw_detect_tag || return 1
+
+    : "${CONTAINER_IMAGE:=tpo42/adoc:${CONTAINER_TAG}}"
+
+    if ! ${_ADCW_CONTAINER_RUNNER_BIN} image inspect "${CONTAINER_IMAGE}" >/dev/null 2>&1; then
+        echo "Error: Container ${CONTAINER_IMAGE} not found!" >&2
+        if [[ -n "${ADC_PROJECT_HOME:-}" ]]; then
+            echo "" >&2
+            echo "Build it first:" >&2
+            echo "  ${ADC_PROJECT_HOME}/bin/adcbw" >&2
+            echo "" >&2
+        fi
+        return 1
+    fi
+
+    test -d "${PWD}/build" || mkdir -p "${PWD}/build"
+}
+
+# --- Helpers ---
+
+_adcw_find_adoc_service() {
+    local compose_path="$1"
+    awk '
+        /^[[:space:]]*[a-zA-Z0-9_-]+:[[:space:]]*$/ {
+            current_service = $1
+            gsub(/:$/, "", current_service)
+        }
+        /image:.*tpo42\/adoc/ {
+            print current_service
+            exit
+        }
+    ' "${compose_path}"
+}
+
+_adcw_find_compose_cmd() {
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        echo "docker compose"
+        return 0
+    fi
+    if command -v docker-compose >/dev/null 2>&1; then
+        echo "docker-compose"
+        return 0
+    fi
+    if command -v podman-compose >/dev/null 2>&1; then
+        echo "podman-compose"
+        return 0
+    fi
+    echo "Error: No compose command found (docker compose, docker-compose, or podman-compose)" >&2
+    return 1
+}
+
+_adcw_show_usage() {
+    cat << 'EOF'
+ADCW - AsciiDoc Container Wrapper
+
+Usage:
+  adcw [-f docker-compose.yml] <command> [options]
+
+Commands:
+  flatten           Resolve all includes to self-contained document
+  validate          Syntax validation of AsciiDoc files
+  extract-diagrams  Extract diagram sources for analysis
+  shell             Interactive container shell
+
+  asciidoctor       Run asciidoctor directly
+  asciidoctor-pdf   Run asciidoctor-pdf directly
+  asciidoctor-reducer  Run asciidoctor-reducer directly
+
+Options:
+  -f PATH     Use specific docker-compose.yml
+  -h, --help  Show this help message
+
+Environment:
+  ADC_PROJECT_HOME Path to tpo42-asciidoc-container checkout (contributor)
+  ADOC_COMPOSE     Path to docker-compose.yml
+  ADOC_SERVICE     Service name in compose (auto-detected from image)
+  ADOC_WORKSPACE   Workspace folder for devcontainer (default: .)
+  CONTAINER_TAG    Explicit container tag override
+  CONTAINER_IMAGE  Explicit full image reference override
+
+Execution Priority:
+  1. docker-compose.yml (via -f, ADOC_COMPOSE, or auto-detect)
+  2. .devcontainer/devcontainer.json with tpo42/adoc image
+  3. Dedicated container (requires container runtime + image)
+
+Examples:
+  adcw validate -i doc.adoc
+  adcw -f ~/project/docker-compose.yml validate -i doc.adoc
+  ADOC_SERVICE=xodos-adoc adcw validate -i doc.adoc
+EOF
+}
+
+# --- Script entry point (skipped when sourced for testing) ---
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    adcw "$@"
+fi
