@@ -1,0 +1,19 @@
+# Gates that are Python programs. Which version runs is a decision, not something to
+# inherit from a base image.
+
+# Commit messages, driven from lefthook's commit-msg hook.
+gitlint~=0.19
+
+# Structure for workflow files, out of the SchemaStore definitions. actionlint checks
+# semantics — expressions, runner labels, action inputs — so neither subsumes the other
+# and both are wired.
+check-jsonschema~=0.37
+
+# Markdown. The GFM plugin for tables, the frontmatter plugin so the YAML header of a
+# skill file survives being formatted.
+mdformat~=1.0
+mdformat-gfm~=1.0
+mdformat-frontmatter~=2.1
+
+# YAML.
+yamllint~=1.38

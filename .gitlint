@@ -1,0 +1,70 @@
+[general]
+verbosity = 2
+
+# fixup, fixup-amend and squash commits keep gitlint's default of being ignored: their
+# messages exist only until `rebase --autosquash` removes them, so checking them would
+# block the very workflow they belong to.
+ignore-merge-commits=false
+ignore-revert-commits=true
+ignore-fixup-commits=true
+ignore-fixup-amend-commits=true
+ignore-squash-commits=true
+
+ignore-stdin=true
+staged=true
+fail-without-commits=true
+regex-style-search=true
+
+# CT1 = conventional commit title, CC1 = body starts with a capital-free line
+contrib=CT1,CC1
+
+
+### RULE CONFIGURATION ###
+
+# 72, not the 52 that tpo42-templates uses. Chris Beams' 50 is a soft target and this is
+# a hard gate: the /commit convention states ~50 as the aim and 72 as the cap before UIs
+# truncate. A gate set at the aim rejects subjects the convention permits.
+[title-max-length]
+line-length=72
+
+[title-min-length]
+min-length=5
+
+[title-must-not-contain-word]
+words=wip,foobar
+
+[body-max-line-length]
+line-length=120
+
+[body-min-length]
+min-length=5
+
+[body-is-missing]
+ignore-merge-commits=false
+
+# body-changed-file-mention is deliberately NOT configured. Requiring the body to name a
+# changed file turns a rule meant for genuinely load-bearing files into noise on every
+# documentation touch — and this repository's README changes with almost every feature.
+
+
+### CONTRIB RULES ###
+# The SSOT for which types this repository accepts. Matches the /commit convention.
+[contrib-title-conventional-commits]
+types = fix,feat,chore,docs,style,refactor,perf,test,revert,ci,build
+
+
+### IGNORE RULES CONFIGURATION ###
+# Release commits are generated, not written, and carry no body.
+[ignore-by-title]
+regex=^Release(.*)
+ignore=T1,body-min-length
+
+# Co-Authored-By is not prose and must not be measured as such. Signed-off-by must NOT
+# be listed here: contrib rule CC1 requires that very line, and ignore-body-lines strips
+# matches before the rules run — listing it would make CC1 unsatisfiable.
+[ignore-body-lines]
+regex=^Co-Authored-By
+
+[ignore-by-author-name]
+regex=(.*)dependabot(.*)
+ignore=T1,body-min-length

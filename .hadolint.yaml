@@ -1,0 +1,13 @@
+# .hadolint.yaml — lints container/Containerfile (the delivered image) and
+# container/mini.Containerfile (the gate fleet) via lefthook.
+#
+# DL3008 (pin apt versions) and DL3041 (pin dnf versions) are ignored on purpose, one per
+# image: the delivered toolchain is Debian-based, the gate fleet is Fedora-based, and both
+# take the same position. What comes from a distribution here is the base — curl, git, jq,
+# a shell, the language runtimes — and freezing those blocks security updates for no
+# reproducibility the image tag does not already give. The versions that do matter are
+# pinned where they belong: mini.Containerfile for the gates, Gemfile and
+# mini.requirements.txt for what runs on the runtimes.
+ignored:
+  - DL3008
+  - DL3041

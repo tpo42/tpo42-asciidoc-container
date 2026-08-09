@@ -1,0 +1,54 @@
+# Provenance for lefthook's mini fleet. lefthook.yml itself names no container;
+# lefthook-local.yml points its {mini} template at the service below.
+#
+# Deliberately NOT named docker-compose.yml. bin/adcw auto-detects exactly that name and
+# would switch this repository into compose mode — the wrapper would then dispatch its
+# own commands through a QA container instead of the image it builds. The fleet is
+# infrastructure for the gates, not this project's runtime, and the filename keeps that
+# distinction enforceable rather than merely documented.
+#
+# There is no service for the AsciiDoc toolchain here on purpose. That image is what this
+# repository *delivers*: bin/adcbw builds it as tpo42/adoc:$(git describe …), so its tag
+# moves with the branch. A compose file could only track that through a .env that drifts
+# on every checkout. lefthook's {adoc} template therefore points at ./bin/adcw, which
+# resolves the tag from git itself — and runs the wrapper end-to-end on every commit.
+#
+# Warm runner on purpose. `command: sleep infinity` plus `docker compose exec` means one
+# container start per session instead of one per job — with a dozen jobs per commit that
+# is the difference between a hook you keep and a hook you disable.
+
+name: tpo42-adc-qa
+
+services:
+
+  # The fast, non-build fleet: ec, shellcheck, shfmt, zsh, yamllint, actionlint, dclint,
+  # hadolint, gitleaks, gitlint, mdformat, check-jsonschema, jq.
+  tpo42-adc-mini:
+    image: tpo42/adc-mini-qa:local
+    build:
+      context: container
+      dockerfile: mini.Containerfile
+      # The image bakes a user and runs as it. Left at the default it is uid 1000, which
+      # is only right by accident: the formatters write since they became fixers, and on
+      # Linux a container user cannot rewrite a workspace file owned by someone else —
+      # the job then dies of "permission denied" rather than of a formatting finding.
+      # Same mechanism bin/adcbw uses for the delivered image. macOS remaps ownership
+      # and hides all of this, which is why it has to be stated rather than observed.
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+    volumes:
+      - .:/workspace
+    # gitlint asks git for user.name, and the container never sees ~/.gitconfig. Neither
+    # GIT_AUTHOR_* nor GIT_COMMITTER_* answer that question — they name the author of a
+    # commit, not the configuration. git's env-based configuration does, since 2.31, and
+    # it is the one mechanism that works identically in a container and on a CI runner.
+    # Values come from .env, which is git-ignored and created once — see the README.
+    environment:
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: user.name
+      GIT_CONFIG_VALUE_0: ${GIT_USER_NAME:?set GIT_USER_NAME in .env — see README, Local lefthook Setup}
+      GIT_CONFIG_KEY_1: user.email
+      GIT_CONFIG_VALUE_1: ${GIT_USER_EMAIL:?set GIT_USER_EMAIL in .env — see README, Local lefthook Setup}
+    command: ["sleep", "infinity"]
+    working_dir: /workspace
