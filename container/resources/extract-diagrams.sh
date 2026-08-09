@@ -92,6 +92,23 @@ fi
 # Create output directory
 mkdir -p "${OUTPUT_DIR}"
 
+# PlantUML comes from the asciidoctor-diagram-plantuml gem, not from a distribution
+# package. The gem carries 1.2026.x with a 30+ library stdlib — archimate and c4 among
+# them — while Debian ships 1.2020.02 with twelve. Having both meant that which PlantUML
+# you got depended on which entry point you used: asciidoctor-diagram rendered with the
+# gem's, this script rendered with the six-year-old one.
+if [[ "${FORMAT}" != "source" ]]; then
+    shopt -s nullglob
+    plantuml_jars=(/usr/gem/gems/asciidoctor-diagram-plantuml-*/lib/asciidoctor-diagram/plantuml/plantuml-lgpl-*.jar)
+    shopt -u nullglob
+    if [[ ${#plantuml_jars[@]} -eq 0 ]]; then
+        echo "❌ No PlantUML jar found — is asciidoctor-diagram-plantuml installed?"
+        exit 1
+    fi
+    PLANTUML_JAR="${plantuml_jars[${#plantuml_jars[@]} - 1]}"
+    export PLANTUML_JAR
+fi
+
 echo "📊 Extracting diagrams from AsciiDoc..."
 echo "   Input:  ${INPUT_FILE}"
 echo "   Output: ${OUTPUT_DIR}"
@@ -148,7 +165,7 @@ end.each do |diagram_block|
       temp_file = "/tmp/#{base_name}.plantuml"
       File.write(temp_file, source_content)
 
-      if system("plantuml -tsvg -pipe < #{temp_file} > #{rendered_file}")
+      if system("java -jar #{ENV['PLANTUML_JAR']} -tsvg -pipe < #{temp_file} > #{rendered_file}")
         puts "   🖼️  Rendered: #{base_name}.svg"
       else
         puts "   ⚠️  Failed to render: #{base_name}.plantuml"

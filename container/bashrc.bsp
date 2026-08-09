@@ -5,9 +5,6 @@
 export ASCIIDOCTOR_SAFE_MODE=safe
 export ASCIIDOCTOR_BACKEND=html5
 
-# Diagram support
-export PLANTUML_JAR=/usr/share/plantuml/plantuml.jar
-
 # Helpful functions
 adoc-help() {
     cat << 'EOF'
