@@ -270,6 +270,74 @@ The wrapper auto-detects available container runtimes (in priority order):
 4. `podman` -- daemonless container engine
 5. `docker` -- traditional fallback
 
+## Local lefthook Setup
+
+Contributors only. Sixteen checks run on every commit -- shellcheck, shfmt, `zsh -n`,
+editorconfig, yamllint, actionlint, hadolint, dclint, mdformat, gitleaks, the unit
+tests, and `adcw validate` over the ADRs. `lefthook.yml` names no container: its
+`{mini}` and `{adoc}` templates decide where each tool comes from, and
+`lefthook-local.yml` fills them in.
+
+### Containerised, the usual path
+
+```bash
+# 1. Where the tools come from
+cat > lefthook-local.yml <<'EOF'
+templates:
+  adoc: ./bin/adcw
+  mini: docker compose -f qa-compose.yml exec -T tpo42-adc-mini
+EOF
+
+# 2. Your git identity -- gitlint runs in a container and cannot read ~/.gitconfig --
+#    and your uid, so the formatters can rewrite files your workspace owns
+printf 'GIT_USER_NAME=%s\nGIT_USER_EMAIL=%s\nUSER_UID=%s\nUSER_GID=%s\n' \
+    "$(git config user.name)" "$(git config user.email)" "$(id -u)" "$(id -g)" > .env
+
+# 3. The fast fleet, warm for the session. --build because the uid above is baked in,
+#    so an image built before .env existed carries the wrong one
+docker compose -f qa-compose.yml up -d --build
+
+# 4. The image the AsciiDoc gate validates against -- once per branch,
+#    because its tag follows `git describe`
+./bin/adcbw
+
+# 5. Wire the git hooks
+lefthook install
+```
+
+`docker compose exec` against a warm service costs one container start per session.
+`docker compose run --rm -T` works too and manages no lifecycle, at one start per job --
+noticeable with sixteen of them on a pre-commit hook.
+
+### Natively, if you would rather install the tools
+
+Leaving the templates empty is a valid answer: every job then names a bare command and
+runs it off your `PATH`. That is what CI does on the macOS runner.
+
+```bash
+brew install shellcheck shfmt yamllint actionlint hadolint gitleaks lefthook rubocop
+pipx install gitlint mdformat check-jsonschema
+
+# no lefthook-local.yml at all -- the templates stay empty
+lefthook install
+```
+
+`{adoc}` is the exception: that gate deliberately runs this repository's own wrapper, so
+it needs the image either way (step 4 above).
+
+Both `lefthook-local.yml` and `.env` are git-ignored: where tools come from is a
+property of your machine, not of the repository.
+
+To run the gates by hand:
+
+```bash
+lefthook run pre-commit --all-files    # everything
+lefthook run pre-commit --tag shell    # just the shell floor
+```
+
+CI runs the same `lefthook.yml` -- Linux for the container-bound gates, macOS for the
+shell floor, where `/bin/bash` is still 3.2 and bash 4 constructs fail only at runtime.
+
 ## Architecture Decisions
 
 All significant decisions are documented as ADRs in `adr/`:
