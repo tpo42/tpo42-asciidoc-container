@@ -1,0 +1,5 @@
+= Skipped Heading Level
+
+=== Jumped Straight To Level Three
+
+The level two heading is missing.

@@ -31,15 +31,15 @@ The container is designed to be **extensible via two paths**: `adcw` for fast, s
 
 ## Commands
 
-| Command               | Description                                                              |
-| --------------------- | ------------------------------------------------------------------------ |
-| `flatten`             | Resolve all `include::` directives into a single self-contained document |
-| `validate`            | Best-effort AsciiDoc syntax checking                                     |
-| `extract-diagrams`    | Extract PlantUML/Graphviz/Mermaid sources for analysis                   |
-| `asciidoctor`         | Run asciidoctor directly (HTML output)                                   |
-| `asciidoctor-pdf`     | Generate PDF documents                                                   |
-| `asciidoctor-reducer` | Run asciidoctor-reducer directly                                         |
-| `shell`               | Interactive container shell for debugging                                |
+| Command               | Description                                                                      |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `flatten`             | Resolve all `include::` directives into a single self-contained document         |
+| `validate`            | AsciiDoc syntax checking, including diagram rendering (`--no-diagrams` opts out) |
+| `extract-diagrams`    | Extract PlantUML/Graphviz/Mermaid sources for analysis                           |
+| `asciidoctor`         | Run asciidoctor directly (HTML output)                                           |
+| `asciidoctor-pdf`     | Generate PDF documents                                                           |
+| `asciidoctor-reducer` | Run asciidoctor-reducer directly                                                 |
+| `shell`               | Interactive container shell for debugging                                        |
 
 ## Extending the Container
 

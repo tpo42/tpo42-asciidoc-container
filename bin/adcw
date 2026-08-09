@@ -165,7 +165,19 @@ adcw() {
         if [[ -t 0 ]] && [[ -t 1 ]]; then
             interaction+=(--tty)
         fi
+
+        # Run as the invoking user rather than trusting the uid baked in at build
+        # time. That uid is only right when the image was built on this machine; a
+        # pulled ghcr.io/tpo42/adoc carries 1000 and cannot write a workspace owned
+        # by anyone else. asciidoctor has to write: --safe-mode server keeps every
+        # output inside the base directory, so the workspace is not optional.
+        # dtcw settled on the same answer.
+        _adcw_set_userns_args
+        local -a identity=(--user "$(id -u):$(id -g)")
+        identity+=(${_adcw_userns_args[@]+"${_adcw_userns_args[@]}"})
+
         cmd_prefix=("${_ADCW_CONTAINER_RUNNER_BIN}" run --rm "${interaction[@]}"
+            "${identity[@]}"
             --volume "${PWD}:/workspace" --volume "${PWD}/build:/build"
             "${CONTAINER_IMAGE}")
     fi
@@ -221,6 +233,28 @@ _adcw_setup_spec_container() {
     fi
 
     test -d "${PWD}/build" || mkdir -p "${PWD}/build"
+}
+
+# --- Runtime peculiarities ---
+
+# Rootless podman puts the invoking user at container uid 0 and maps every other uid
+# into a subuid range. Combined with --user that means the workspace owner exists
+# nowhere inside the container, and a bind mount becomes read-only in practice.
+# --userns=keep-id maps the host user onto itself and restores write access; it is
+# rejected outright when podman runs rootful, so the mode has to be asked for.
+#
+# Sets _adcw_userns_args, empty for every runtime but rootless podman. Assigning an
+# array rather than printing one: splitting command output would need mapfile, which is
+# a bash 4 builtin, and these wrappers still run under macOS's /bin/bash 3.2.
+_adcw_userns_args=()
+_adcw_set_userns_args() {
+    _adcw_userns_args=()
+    [[ "$(basename "${_ADCW_CONTAINER_RUNNER_BIN}")" == "podman" ]] || return 0
+
+    local rootless
+    rootless="$("${_ADCW_CONTAINER_RUNNER_BIN}" info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" || return 0
+    [[ "${rootless}" == "true" ]] && _adcw_userns_args=(--userns=keep-id)
+    return 0
 }
 
 # --- Readiness checks ---

@@ -1,0 +1,5 @@
+= Unresolved Cross Reference
+
+== Section
+
+This points nowhere: <<no-such-anchor>>.

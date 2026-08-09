@@ -57,12 +57,21 @@ jobs:
       - name: Test adcw
         run: test/shell-function.bash
 
+      # Through bin/adcw rather than a hand-written `docker run`. The wrapper knows to
+      # run as the invoking user, and the image built here carries the default uid 1000
+      # while the workspace belongs to the runner — validate renders diagrams into the
+      # workspace, so without that it cannot write. Writing the invocation out a second
+      # time here would be a second thing to keep in step with the wrapper.
+      #
+      # The runtime is pinned to docker because that is where buildx put the image; the
+      # wrapper would otherwise prefer podman, which has its own store and would not
+      # find it.
       - name: Validate ADRs
+        env:
+          CONTAINER_IMAGE: ${{ env.TEST_TAG }}
         run: |
-          docker run --rm \
-            --volume "${{ github.workspace }}:/workspace" \
-            "${{ env.TEST_TAG }}" \
-            validate --strict -i 'adr/*.adoc'
+          _ADCW_CONTAINER_RUNNER_BIN="$(command -v docker)" \
+            ./bin/adcw validate --strict -i 'adr/*.adoc'
 
       - name: Resolve version from tag
         id: version

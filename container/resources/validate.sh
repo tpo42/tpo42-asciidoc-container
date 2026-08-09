@@ -21,6 +21,9 @@ Options:
                         (default: WARN; INFO implies --verbose)
   -s, --strict          Abort on missing files instead of skipping them
   -v, --verbose         Show asciidoctor DEBUG/INFO messages and additional checks
+      --no-diagrams     Skip diagram rendering (faster; stops finding broken diagrams)
+  -w, --work-dir        Scratch parent for rendering output (default: build,
+                        or $ADOC_WORK_DIR). Must be inside the workspace.
   -h, --help            Show this help message
   --                    Everything after this is passed to asciidoctor
 
@@ -43,6 +46,8 @@ ASCIIDOCTOR_EXTRA=()
 FAILURE_LEVEL="WARN"
 STRICT=false
 VERBOSE=false
+DIAGRAMS=true
+WORK_DIR="${ADOC_WORK_DIR:-build}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -53,6 +58,14 @@ while [[ $# -gt 0 ]]; do
         ;;
     -i | --input)
         INPUT_ARGS+=("$2")
+        shift 2
+        ;;
+    --no-diagrams)
+        DIAGRAMS=false
+        shift
+        ;;
+    -w | --work-dir)
+        WORK_DIR="$2"
         shift 2
         ;;
     -l | --failure-level)
@@ -91,6 +104,29 @@ if [[ ${#INPUT_ARGS[@]} -eq 0 ]]; then
     show_usage
     exit 1
 fi
+
+# Scratch for everything asciidoctor writes: the HTML it has to produce for reference
+# checking, the rendered diagrams, the diagram cache, the captured diagnostics. Only the
+# diagnosis is of interest here, so nothing is retrieved and the directory goes away on
+# exit — working directory, not result directory.
+#
+# Inside the workspace on purpose. --safe-mode server bends absolute attribute paths back
+# into the document's base directory, so a scratch under /tmp reappears as
+# <basedir>/tmp/… with real diagrams in it. The default parent is build/, which bin/adcw
+# already creates and mounts and which consumers already ignore.
+if ! mkdir -p "${WORK_DIR}" 2>/dev/null || ! SCRATCH="$(mktemp -d "${WORK_DIR}/.validate.XXXXXX" 2>/dev/null)"; then
+    echo "❌ Cannot write to the work directory: ${WORK_DIR}"
+    echo ""
+    echo "   Validation renders into the workspace because --safe-mode server refuses"
+    echo "   any output outside the document's base directory. This user ($(id -u):$(id -g))"
+    echo "   cannot write here — the workspace belongs to someone else, or is mounted"
+    echo "   read-only."
+    echo ""
+    echo "   Run the container as the workspace owner, or point --work-dir at a"
+    echo "   writable directory inside it. --no-diagrams skips rendering entirely."
+    exit 1
+fi
+trap 'rm -rf "${SCRATCH}"' EXIT
 
 echo "🔍 Validating AsciiDoc files..."
 
@@ -139,38 +175,57 @@ for file in "${FILES[@]}"; do
     echo "📝 Validating: ${file}"
 
     # Validate via asciidoctor (resolves includes, conditionals, cross-references)
-    # Use -o - (stdout) instead of --out-file /dev/null: the latter skips rendering
-    # and therefore misses invalid reference checks.
+    # Rendering into the scratch rather than --out-file /dev/null: the latter skips
+    # conversion and therefore misses invalid reference checks. A real target keeps that
+    # property without writing into the document's directory.
+    # --base-dir anchors the jail at the workspace instead of at each document's own
+    # directory. Without it a document in a subdirectory renders into a scratch that
+    # lies outside its jail, and asciidoctor answers with "path is outside of jail;
+    # recovering automatically" — a warning, which at the default failure level fails
+    # the very document it was asked to check.
     asciidoctor_args=(
         --trace
         --safe-mode server
+        --base-dir "${PWD}"
         --failure-level "${FAILURE_LEVEL}"
         --no-header-footer
-        -o -
+        -o "${SCRATCH}/render.html"
     )
     if [[ "${VERBOSE}" == true ]]; then
         asciidoctor_args+=(--verbose)
     fi
+    # Without the extension asciidoctor only parses a diagram block — a syntactically
+    # broken diagram reaches DEBUG ("unknown style for listing block") and validation
+    # passes. Rendering is what turns it into a finding. imagesoutdir and diagram-cachedir
+    # keep the rendered output out of the workspace; PlantUML's own `!include` still
+    # resolves against the document, so diagram sources are unaffected.
+    if [[ "${DIAGRAMS}" == true ]]; then
+        asciidoctor_args+=(
+            -r asciidoctor-diagram
+            -a imagesoutdir="${SCRATCH}/images"
+            -a diagram-cachedir="${SCRATCH}/cache"
+        )
+    fi
     if asciidoctor \
         "${asciidoctor_args[@]}" \
         ${ASCIIDOCTOR_EXTRA[@]+"${ASCIIDOCTOR_EXTRA[@]}"} \
-        "${file}" >/dev/null 2>/tmp/validation_output; then
+        "${file}" >/dev/null 2>"${SCRATCH}/diagnostics"; then
 
         VALID_FILES=$((VALID_FILES + 1))
         echo "   ✅ Valid"
 
         if [[ "${VERBOSE}" == true ]]; then
             # Show warnings if any
-            if [[ -s /tmp/validation_output ]]; then
+            if [[ -s "${SCRATCH}/diagnostics" ]]; then
                 echo "   ⚠️  Warnings:"
-                sed 's/^/      /' /tmp/validation_output
+                sed 's/^/      /' "${SCRATCH}/diagnostics"
             fi
         fi
     else
         ERROR_FILES=$((ERROR_FILES + 1))
         echo "   ❌ Errors found"
         echo "   🔍 Details:"
-        sed 's/^/      /' /tmp/validation_output
+        sed 's/^/      /' "${SCRATCH}/diagnostics"
     fi
 
     # Additional checks for common issues

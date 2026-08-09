@@ -1,0 +1,11 @@
+= Clean Document
+:doctype: article
+
+[[intro]]
+== Introduction
+
+A reference that resolves: <<intro>>.
+
+== Second Section
+
+Nothing here is wrong.

@@ -1,0 +1,5 @@
+= Missing Optional Include
+
+== Section
+
+include::does-not-exist.adoc[opts=optional]
