@@ -70,7 +70,9 @@ jobs:
         run: |
           RAW_TAG="${{ inputs.tag || github.ref_name }}"
           VERSION="${RAW_TAG#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION}"
+          # The patch component is read and dropped: only the floating major and
+          # major.minor tags are published alongside the exact version.
+          IFS='.' read -r MAJOR MINOR _ <<< "${VERSION}"
           {
             echo "version=${VERSION}"
             echo "major=${MAJOR}"

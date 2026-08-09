@@ -16,9 +16,12 @@ test_help() {
 
 test_no_context_error() {
     echo "Testing: No context produces container-not-found error..."
-    unset ADC_PROJECT_HOME CONTAINER_TAG CONTAINER_IMAGE 2>/dev/null || true
+    unset ADC_PROJECT_HOME CONTAINER_TAG 2>/dev/null || true
+    # A name no registry will ever carry, instead of relying on the ambient image being
+    # absent: once bin/adcbw has run — which the adoc gate requires — the tag derived
+    # from git *does* exist locally, and the assertion below would flip.
     local output
-    output="$(adcw validate 2>&1)" || true  # Expected to fail
+    output="$(CONTAINER_IMAGE=tpo42/adoc:test-nonexistent adcw validate 2>&1)" || true
     echo "${output}" | grep -q "Container.*not found"
     echo "  PASS"
 }
@@ -28,7 +31,7 @@ test_compose_detection() {
     local compose_file="${SCRIPT_DIR}/fixtures/compose-valid.yml"
     local output
     # Without a command, compose mode shows usage error
-    output="$(adcw -f "${compose_file}" 2>&1)" || true  # Expected to fail
+    output="$(adcw -f "${compose_file}" 2>&1)" || true # Expected to fail
     echo "${output}" | grep -q "Usage:"
     echo "  PASS"
 }
