@@ -1,0 +1,12 @@
+# .dclintrc — dclint configuration. Severity: 0 disabled, 1 warning, 2 error.
+#
+# no-build-and-image is disabled. The Compose specification explicitly allows both keys
+# together: `build` says how to build, `image` says what to tag the result. That is
+# exactly the case for qa-compose.yml, which builds the mini fleet locally and names the
+# result tpo42/adc-mini-qa:local.
+#
+# Keeping the name is not cosmetic. A developer working on a dozen projects with nearly
+# identical compose files ends up with a screenful of containers; a named image is
+# findable, a generated one is not.
+rules:
+  no-build-and-image: 0

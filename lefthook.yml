@@ -1,0 +1,204 @@
+# lefthook.yml — tpo42-asciidoc-container
+#
+# Derived from the qa-ready catalog, pruned to what this repository actually carries:
+# shell (the dominant artefact), one Containerfile, GitHub workflows, Markdown, AsciiDoc
+# ADRs and one requirement. No Python, no C, no XML, no TOML — so ruff, clang-tidy,
+# xmllint and taplo are not wired here. Add them from references/catalog.md when such a
+# file appears.
+#
+# INVARIANT — no container reference in this file.
+# Jobs name tools. The {template} placeholders decide where those tools come from:
+#   empty (as below)      → the tool runs natively. This is the GitHub Actions case;
+#                           GitHub runs VMs, so the workflow installs the tools.
+#   filled in lefthook-local.yml → the tool runs in a container. This is the framework
+#                           developer case; README.md, "Local lefthook Setup".
+# Never both, and never nested: starting a container from inside a container does not
+# work — paths do not resolve and the socket belongs to another namespace. Dispatch
+# therefore belongs to the calling layer, not to this file.
+#
+# A template expands to a *prefix* that ends before the tool name, so images used here
+# must not set an ENTRYPOINT that supplies the binary.
+
+min_version: 2.0.0
+
+# Empty strings, not empty keys: a key without a value is YAML null, and lefthook's
+# schema wants a string here — `lefthook validate` rejects null while expanding it to the
+# same nothing at run time. "" says "no prefix" in a way the validator also accepts.
+templates:
+  # domain bucket — the AsciiDoc toolchain. Here that is the image this repository
+  # delivers, reached through its own wrapper, so the gate exercises the product.
+  adoc: ""
+  # mini bucket — fast, non-build checks
+  mini: ""
+
+pre-commit:
+  parallel: true
+  jobs:
+
+    # ---------------------------------------------------------------- mini bucket
+
+    # Whitespace, EOL and charset for every language from one SSOT (.editorconfig).
+    - name: editorconfig
+      tags: [mini, format]
+      glob: "*"
+      run: "{mini} ec {staged_files}"
+
+    # Shell is selected by MIME type, not by extension. bin/adcw and bin/adcbw carry no
+    # suffix — a glob would have to name them one by one and would miss the next script
+    # someone adds. libmagic reads the shebang instead, so `text/x-shellscript` catches
+    # every real script wherever it lives.
+    - name: shellcheck
+      tags: [mini, shell]
+      file_types: ["text/x-shellscript"]
+      run: "{mini} shellcheck -x {staged_files}"
+
+    # The companion case: a file meant to be *sourced* may have no shebang, and then
+    # libmagic reports text/plain — lib/completions/adcw.bash is exactly that. It needs
+    # the dialect stated explicitly, which is why this is a separate job rather than a
+    # wider filter: -s bash is wrong for the scripts above, whose shebang decides.
+    # lefthook ANDs its filters, so a MIME-or-glob union cannot be one job anyway.
+    # Files carrying both a .bash suffix and a shebang are checked twice; that costs
+    # milliseconds and is the safe direction to err in.
+    - name: shellcheck-sourced
+      tags: [mini, shell]
+      glob: "*.bash"
+      run: "{mini} shellcheck -x -s bash {staged_files}"
+
+    # Check, do not rewrite: a violation flips the exit code and the author decides,
+    # instead of the hook editing files underneath them. -i 4 matches the existing
+    # scripts and is the SSOT for shell style — .editorconfig deliberately does not
+    # carry indent_style for shell (see the catalog note on SPOT).
+    - name: shfmt
+      tags: [mini, shell, format]
+      file_types: ["text/x-shellscript"]
+      run: "{mini} shfmt -d -i 4 {staged_files}"
+
+    # zsh completions are not shell in shellcheck's sense: it refuses the dialect
+    # outright ("Unknown shell: zsh", upstream #809). `zsh -n` is the interpreter's own
+    # parser — a syntax gate, not a linter. It is what exists today; z-shell/zsh-lint is
+    # the candidate for more, once it ships a release binary.
+    - name: zsh-syntax
+      tags: [mini, shell]
+      glob: "lib/completions/_*"
+      run: "{mini} zsh -n {staged_files}"
+
+    - name: yamllint
+      tags: [mini, yaml]
+      glob: "*.{yml,yaml}"
+      run: "{mini} yamllint {staged_files}"
+
+    # Workflow structure against the vendored SchemaStore definition. Complements
+    # actionlint rather than duplicating it: this one knows which keys may appear where,
+    # the other knows what the values mean.
+    - name: workflow-schema
+      tags: [mini, ci]
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: "{mini} check-jsonschema --builtin-schema vendor.github-workflows {staged_files}"
+
+    # Workflow semantics — expressions, runner labels, action inputs.
+    - name: actionlint
+      tags: [mini, ci]
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: "{mini} actionlint {staged_files}"
+
+    # Compose semantics (key order, name field) — complementary to yamllint. Matches
+    # qa-compose.yml and the compose fixture the test suite parses.
+    - name: dclint
+      tags: [mini, compose]
+      glob: "*compose*.{yml,yaml}"
+      run: "{mini} dclint {staged_files}"
+
+    # This repository's whole purpose is a container image, so it lints its own recipes —
+    # both the delivered one and the fleet's.
+    - name: hadolint
+      tags: [mini, docker]
+      # `*` crosses `/` here and matches the empty string, so one pattern per suffix
+      # covers a file at the root and in any directory — measured against lefthook
+      # 2.1.10 rather than assumed. Note what this does *not* need: no `**/` prefix,
+      # which would require a directory and skip a Containerfile at the root, and no
+      # `*.Containerfile`, which insists on a dot that `container/Containerfile` has
+      # nowhere to put.
+      glob: "{*Containerfile,*Dockerfile,*.dockerfile}"
+      run: "{mini} hadolint {staged_files}"
+
+    # Checking rather than rewriting, like shfmt above. Line wrapping is left as written:
+    # reflowed prose turns a one-word edit into a paragraph-sized diff. Everything else —
+    # list markers, emphasis, code fences, heading style — is still normalised.
+    # --number keeps ordered lists numbered as written. mdformat-frontmatter is why the
+    # YAML header of .claude/skills/adcw/SKILL.md survives untouched.
+    - name: mdformat
+      tags: [mini, markdown, format]
+      glob: "*.md"
+      run: "{mini} mdformat --check --number {staged_files}"
+
+    # git-native, so deliberately without a template: git is part of the host floor.
+    - name: merge-markers
+      tags: [mini]
+      run: git diff --check
+
+    # Commits are allowed on main and on feature/, hotfix/ and release/ branches,
+    # nowhere else.
+    - name: guard-branch
+      tags: [mini]
+      run: |
+        branch="$(git branch --show-current)"
+        [ -z "$branch" ] && exit 0
+        case "$branch" in
+          main|feature/*|hotfix/*|release/*) exit 0 ;;
+        esac
+        echo "commit on '$branch' refused — use main, feature/…, hotfix/… or release/…"
+        exit 1
+
+    # Secret gate on the staged change. gitleaks needs no baseline to maintain.
+    - name: gitleaks
+      tags: [mini, secrets]
+      run: "{mini} gitleaks protect --staged --redact --no-banner --source ."
+
+    # Binary artefacts by type, not by size.
+    - name: artifact-guard
+      tags: [mini]
+      glob: "*.{jar,so,a,o,elf,bin,exe,dll,class,pyc}"
+      run: |
+        echo "Binary/artifact file(s):"; printf '  %s\n' {staged_files}
+        echo "Intentional? Then allow via .gitattributes — otherwise remove."
+        exit 1
+
+    # ---------------------------------------------------------------- host floor
+
+    # The existing suite sources bin/adcw and exercises its internals. Deliberately
+    # without a template: it asserts on how the wrapper behaves *on a host* — which
+    # container runtime it finds, what it reports when an image is missing. Running it
+    # inside the mini container would test a machine nobody uses.
+    - name: unit-tests
+      tags: [test, shell]
+      glob: "{bin/*,lib/**,test/**}"
+      run: bash test/shell-function.bash
+
+    # -------------------------------------------------------------- domain bucket
+
+    # Dispatched through bin/adcw, not through a compose service: the wrapper resolves
+    # the image tag from git, so the gate always validates against the image built from
+    # the current branch — and running the wrapper on every commit is itself the test
+    # that keeps it working.
+    #
+    # Addressed at the compile units, of which this repository has two directories'
+    # worth: adr/ and req/. Every file there is self-contained, so unlike a chapter-based
+    # documentation repository there is no fragment-versus-unit distinction to make.
+    #
+    # Globs, not directories: validate resolves an -i argument as a glob pattern or as an
+    # existing file, and a bare `adr/` is neither. Single-quoted so the pattern reaches
+    # validate unexpanded — it does its own find.
+    #
+    # --strict turns a pattern that matches nothing into a failure instead of a skip. How
+    # much stricter this gate should be (--verbose, --failure-level INFO) is a separate
+    # question from getting it wired.
+    - name: adoc-validate
+      tags: [domain, asciidoc]
+      glob: "*.adoc"
+      run: "{adoc} validate -i 'adr/*.adoc' -i 'req/*.adoc' --strict"
+
+commit-msg:
+  jobs:
+    - name: gitlint
+      tags: [mini, commit]
+      run: "{mini} gitlint --msg-filename {1}"

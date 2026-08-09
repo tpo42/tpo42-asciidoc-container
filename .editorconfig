@@ -1,0 +1,25 @@
+# .editorconfig — whitespace hygiene only, one SSOT for every filetype in this repo.
+#
+# Deliberately NO syntax or style rules (indent_size, indent_style): those belong to the
+# dedicated formatters — here shfmt, which lefthook.yml runs with -i 4. A second place
+# for them violates SPOT and drifts apart from whatever the formatter actually does.
+#
+# Enforced by editorconfig-checker (`ec`) in lefthook.yml.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Markdown: trailing whitespace can be a hard line break. AsciiDoc needs no exception —
+# its hard break is a trailing '+', which is not whitespace.
+[*.md]
+trim_trailing_whitespace = false
+
+# LICENSE.txt is the verbatim CC BY-SA 4.0 text. It is not ours to reformat, not even
+# whitespace — a licence is quoted, not maintained.
+[LICENSE.txt]
+trim_trailing_whitespace = false

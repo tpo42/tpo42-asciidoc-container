@@ -49,14 +49,21 @@ ENV PATH="${GEM_BIN_PATH}:$PATH"
 
 # Install Ruby gems
 RUN echo "gem: --no-ri --no-rdoc" > ~/.gemrc
+# `set +o pipefail` turns off what the SHELL instruction above turned on, because
+# `yes | gem …` closes the pipe early and would otherwise fail the whole RUN. hadolint
+# reads this line as POSIX sh regardless of that SHELL instruction, hence the ignore —
+# the option is defined in the shell this actually runs in.
+# hadolint ignore=SC3040
 RUN unset GEM_HOME && unset GEM_BIN \
  && set +o pipefail \
  && yes | gem update --system \
  && yes | gem install --force bundler
 
-# Install gems for AsciiDoc toolchain
+# Install gems for AsciiDoc toolchain. BUNDLE_GEMFILE points bundler at the mounted
+# file instead of `cd`-ing to it — a WORKDIR here would have to be undone afterwards,
+# and the environment variable is what bundler offers for exactly this.
 RUN --mount=type=bind,source=Gemfile,target=/tmp/Gemfile,ro \
-    cd /tmp && bundle install
+    BUNDLE_GEMFILE=/tmp/Gemfile bundle install
 
 COPY resources/flatten.sh /usr/local/bin/flatten
 COPY resources/extract-diagrams.sh /usr/local/bin/extract-diagrams

@@ -1,0 +1,9 @@
+# .shellcheckrc — SSOT for how shellcheck resolves `source` directives here.
+#
+# bin/adcw and bin/adcbw carry `# shellcheck source=../lib/adcw-common.bash`, which is
+# relative to the script. Without a source-path shellcheck resolves it against the
+# working directory instead and reports SC1091 ("Not following"), so the finding depends
+# on where the gate happens to be invoked from — from the repository root in the hook,
+# from /workspace in the container. SCRIPTDIR anchors it to the script itself, which is
+# what the directive already means.
+source-path=SCRIPTDIR
