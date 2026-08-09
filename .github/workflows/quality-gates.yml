@@ -78,9 +78,12 @@ jobs:
           EOF
 
       # The adoc gate validates against the image built from *this* commit, which is the
-      # whole point of dogfooding it here rather than pulling a published tag. adcbw and
-      # adcw derive the same tag from git describe, so the two always agree.
+      # whole point of dogfooding it here rather than pulling a published tag. The tag is
+      # pinned to the same value lefthook.yml gives the gate; a runner builds it fresh
+      # every time, so "fixed tag" and "image of this commit" do not conflict here.
       - name: Build the delivered image
+        env:
+          CONTAINER_TAG: local
         run: ./bin/adcbw
 
       # The runner's identity, so the container writes files this job can still read and

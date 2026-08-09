@@ -297,9 +297,10 @@ printf 'GIT_USER_NAME=%s\nGIT_USER_EMAIL=%s\nUSER_UID=%s\nUSER_GID=%s\n' \
 #    so an image built before .env existed carries the wrong one
 docker compose -f qa-compose.yml up -d --build
 
-# 4. The image the AsciiDoc gate validates against -- once per branch,
-#    because its tag follows `git describe`
-./bin/adcbw
+# 4. The image the AsciiDoc gate validates against. The tag is pinned because
+#    the git-derived one flips between `-dirty` and clean as you commit;
+#    rebuild it whenever container/ changes
+CONTAINER_TAG=local ./bin/adcbw
 
 # 5. Wire the git hooks
 lefthook install
