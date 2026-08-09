@@ -8,10 +8,10 @@
 # distinction enforceable rather than merely documented.
 #
 # There is no service for the AsciiDoc toolchain here on purpose. That image is what this
-# repository *delivers*: bin/adcbw builds it as tpo42/adoc:$(git describe …), so its tag
-# moves with the branch. A compose file could only track that through a .env that drifts
-# on every checkout. lefthook's {adoc} template therefore points at ./bin/adcw, which
-# resolves the tag from git itself — and runs the wrapper end-to-end on every commit.
+# repository *delivers*, so the gate reaches it through ./bin/adcw — which runs the
+# wrapper end-to-end on every commit instead of merely exercising asciidoctor. The gate
+# pins CONTAINER_TAG to `local`, built by `CONTAINER_TAG=local ./bin/adcbw`; see
+# lefthook.yml for why the git-derived tag cannot serve that purpose.
 #
 # Warm runner on purpose. `command: sleep infinity` plus `docker compose exec` means one
 # container start per session instead of one per job — with a dozen jobs per commit that
