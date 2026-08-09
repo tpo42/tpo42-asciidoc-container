@@ -10,15 +10,21 @@ gem 'asciidoctor', '~> 2.0'
 gem 'asciidoctor-pdf', '~> 2.3'
 
 # Diagram support (PlantUML, Graphviz, etc.)
-gem 'asciidoctor-diagram', '~> 3.0'
+#
+# Extension and PlantUML jar are separate gems that have to match: PlantUML 1.2026.2 needs
+# asciidoctor-diagram 3.2.1 (upstream #509). extract-diagrams reads the diagram types it
+# recognises out of the extension.
+gem 'asciidoctor-diagram', '~> 3.2'
 gem 'asciidoctor-diagram-ditaamini', '~> 1.0'
-gem 'asciidoctor-diagram-plantuml', '>= 1.2025'
+gem 'asciidoctor-diagram-plantuml', '~> 1.2025'
 
 # Include resolution for flattening (our main use case!)
 gem 'asciidoctor-reducer', '~> 1.0'
 
 # Syntax highlighting
-gem 'rouge', '~> 4.6'
+# 5.x overhauls the HTML formatter delegation and drops EOL Ruby 2.7; the image is on 3.x.
+# The Sed lexer carries a ReDoS fix.
+gem 'rouge', '~> 5.1'
 
 # Enhanced presentation formats
 gem 'asciidoctor-revealjs', '~> 5.2'
@@ -34,7 +40,13 @@ gem 'asciidoctor-epub3', '~> 2.2'
 # gem 'asciimath'
 # gem 'mathematical', '~> 1.6'
 
-gem 'asciidoctor-kroki', '~> 0.10'
+# No command in this image wires Kroki up. The extension is reachable through
+# `validate -- -r asciidoctor-kroki` or from `adcw shell`, pointed at a consumer's own
+# Kroki service.
+#
+# Upstream stopped tagging Ruby releases as ruby-v* and versions the gem alongside the
+# JavaScript package, which is why 1.0.x follows 0.10.2.
+gem 'asciidoctor-kroki', '~> 1.0'
 
 # Multi-format document processing
 # gem 'asciidoctor-confluence', '~> 0.0.2'
