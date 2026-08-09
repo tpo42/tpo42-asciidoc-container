@@ -55,7 +55,7 @@ jobs:
     steps:
       # The pull-request head, not the synthetic merge commit: the range checks below
       # report on commits an author actually wrote and can amend.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -148,7 +148,7 @@ jobs:
   host-gates:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install lefthook
         run: |
