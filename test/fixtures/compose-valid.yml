@@ -1,3 +1,16 @@
+# Fixture for test/shell-function.bash — _adcw_find_adoc_service must find "adoc" here.
+#
+# Kept realistic rather than minimal: dclint gates every compose file in this repository,
+# and a fixture that only a linter exclusion keeps alive is a fixture that stops
+# resembling what it stands in for. The service name and the tpo42/adoc image are what
+# the assertion reads; everything else is here so the file is a compose file a person
+# would actually write.
+name: adcw-fixture
+
 services:
   adoc:
-    image: tpo42/adoc
+    image: tpo42/adoc:0
+    volumes:
+      - .:/workspace
+    command: ["sleep", "infinity"]
+    working_dir: /workspace

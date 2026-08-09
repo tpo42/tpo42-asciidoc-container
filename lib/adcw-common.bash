@@ -54,10 +54,10 @@ _adcw_exit_error() {
 _adcw_detect_runner() {
     [[ -n "${_ADCW_CONTAINER_RUNNER_BIN:-}" ]] && return 0
     _ADCW_CONTAINER_RUNNER_BIN="$(command -v container)" ||
-    _ADCW_CONTAINER_RUNNER_BIN="$(command -v nerdctl)" ||
-    _ADCW_CONTAINER_RUNNER_BIN="$(command -v finch)" ||
-    _ADCW_CONTAINER_RUNNER_BIN="$(command -v podman)" ||
-    _ADCW_CONTAINER_RUNNER_BIN="$(command -v docker)" ||
+        _ADCW_CONTAINER_RUNNER_BIN="$(command -v nerdctl)" ||
+        _ADCW_CONTAINER_RUNNER_BIN="$(command -v finch)" ||
+        _ADCW_CONTAINER_RUNNER_BIN="$(command -v podman)" ||
+        _ADCW_CONTAINER_RUNNER_BIN="$(command -v docker)" ||
         _adcw_exit_error "${_ADCW_MISSING_RUNNER}"
 }
 
@@ -70,8 +70,8 @@ _adcw_detect_tag() {
         git_bin="$(command -v git)" || true
         if [[ -n "${git_bin}" ]]; then
             CONTAINER_TAG="$("${git_bin}" -C "${ADC_PROJECT_HOME}" \
-                describe --all --always --dirty 2>/dev/null \
-                | sed -e 's,^heads/,,g' -e 's,^main$,latest,g' | tr / -)" || true
+                describe --all --always --dirty 2>/dev/null |
+                sed -e 's,^heads/,,g' -e 's,^main$,latest,g' | tr / -)" || true
         fi
     fi
 

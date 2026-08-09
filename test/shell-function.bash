@@ -41,7 +41,10 @@ test_compose_service_detection() {
     local compose_file="${SCRIPT_DIR}/fixtures/compose-valid.yml"
     local service
     service="$(_adcw_find_adoc_service "${compose_file}")"
-    [[ "${service}" == "adoc" ]] || { echo "  FAIL: expected 'adoc', got '${service}'"; exit 1; }
+    [[ "${service}" == "adoc" ]] || {
+        echo "  FAIL: expected 'adoc', got '${service}'"
+        exit 1
+    }
     echo "  PASS"
 }
 
