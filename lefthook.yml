@@ -169,10 +169,16 @@ pre-commit:
     # without a template: it asserts on how the wrapper behaves *on a host* — which
     # container runtime it finds, what it reports when an image is missing. Running it
     # inside the mini container would test a machine nobody uses.
+    #
+    # /bin/bash, not `bash`: the wrapper's shebang is /bin/bash, so that is the
+    # interpreter its users actually get — on macOS still 3.2.57, where every bash 4
+    # construct parses cleanly under `bash -n` and only fails when the code runs. A
+    # static gate cannot cover that; executing the suite under the platform's system
+    # bash is the only thing that does.
     - name: unit-tests
       tags: [test, shell]
       glob: "{bin/*,lib/**,test/**}"
-      run: bash test/shell-function.bash
+      run: /bin/bash test/shell-function.bash
 
     # -------------------------------------------------------------- domain bucket
 
