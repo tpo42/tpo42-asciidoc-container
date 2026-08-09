@@ -17,6 +17,7 @@ Local gates — run both before committing:
 
 ```bash
 bash test/shell-function.bash                        # sources bin/adcw, tests internals
+bash test/validate-cases.bash                        # validate regression suite (needs the image)
 shellcheck -x -P bin -P lib bin/adcw bin/adcbw lib/adcw-common.bash
 ```
 

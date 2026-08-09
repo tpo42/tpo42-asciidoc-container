@@ -1,0 +1,11 @@
+= Broken PlantUML Diagram
+
+== Section
+
+[plantuml,broken,svg]
+----
+@startuml
+Alice -> Bob : hello
+!!! this line is not PlantUML at all (((
+@enduml
+----

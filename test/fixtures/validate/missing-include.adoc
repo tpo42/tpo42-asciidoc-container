@@ -1,0 +1,5 @@
+= Missing Mandatory Include
+
+== Section
+
+include::does-not-exist.adoc[]

@@ -211,6 +211,19 @@ pre-commit:
         CONTAINER_TAG: local
       run: "{adoc} validate -i 'adr/*.adoc' -i 'req/*.adoc' --strict"
 
+    # Regression suite for validate itself — one fixture per defect class it is supposed
+    # to catch, plus a clean control and a check that --no-diagrams really opts out.
+    # Deliberately without a template: it drives bin/adcw, which starts the container
+    # itself, so dispatching it into one would nest containers.
+    #
+    # Runs only when validate, the suite or its fixtures change; it costs a container
+    # start per case, which is too much to pay on every commit and exactly right on the
+    # commits that can break it.
+    - name: validate-cases
+      tags: [domain, asciidoc, test]
+      glob: "{container/resources/validate.sh,test/validate-cases.bash,test/fixtures/validate/*,bin/adcw}"
+      run: /bin/bash test/validate-cases.bash
+
 commit-msg:
   jobs:
     - name: gitlint
