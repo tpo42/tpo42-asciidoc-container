@@ -199,6 +199,12 @@ for file in "${FILES[@]}"; do
     # passes. Rendering is what turns it into a finding. imagesoutdir and diagram-cachedir
     # keep the rendered output out of the workspace; PlantUML's own `!include` still
     # resolves against the document, so diagram sources are unaffected.
+    #
+    # PlantUML (including the C4 and ArchiMate libraries), Graphviz and Ditaa render in
+    # this image. Mermaid does not: it needs a headless browser, which would add 1.68 GB
+    # to a 1.66 GB image, so it lives in ghcr.io/tpo42/adoc-with-mermaid instead
+    # (ADR-008). A mermaid block validated here reports a missing mmdc — a tooling gap,
+    # not a document defect. Use the variant image for such documents.
     if [[ "${DIAGRAMS}" == true ]]; then
         asciidoctor_args+=(
             -r asciidoctor-diagram
@@ -244,9 +250,16 @@ for file in "${FILES[@]}"; do
             fi
         done < <(grep -n "^include::" "${file}" 2>/dev/null || true)
 
-        # Check for diagram blocks
+        # Check for diagram blocks. Counting only — the real check is the rendering
+        # above; this line predates it and is kept as a hint about document shape.
         if diagram_blocks=$(grep -cE "^\[(plantuml|graphviz|mermaid)" "${file}" 2>/dev/null); then
             echo "      📊 Diagram blocks found: ${diagram_blocks}"
+        fi
+
+        # Mermaid is counted above but cannot render here — see ADR-008.
+        if grep -qE "^\[mermaid" "${file}" 2>/dev/null && [[ "${DIAGRAMS}" == true ]] &&
+            ! command -v mmdc >/dev/null 2>&1; then
+            echo "      ℹ️  Mermaid blocks need ghcr.io/tpo42/adoc-with-mermaid to render"
         fi
 
         # Check for cross-references
