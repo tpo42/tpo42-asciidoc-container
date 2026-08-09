@@ -23,6 +23,9 @@ Description:
   Extracts diagram source code from AsciiDoc files.
   Supports PlantUML, Graphviz, Mermaid diagrams.
 
+  Extraction works for every type; --format rendered does not. PlantUML and
+  Graphviz render here, Mermaid needs ghcr.io/tpo42/adoc-with-mermaid (ADR-008).
+
   Perfect for LLM context where diagram source code
   is more valuable than rendered images.
 

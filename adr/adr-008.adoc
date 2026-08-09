@@ -1,0 +1,145 @@
+= ADR-008: Mermaid Ships as a Variant Image
+:date: 2026-08-09
+:status: accepted
+
+== Context
+
+`validate` renders diagram blocks so that a broken diagram fails the gate instead
+of passing as a DEBUG message. That made the question concrete: which diagram
+types can this image render?
+
+[cols="2,1,3"]
+|===
+| Type | Renders today | Notes
+
+| PlantUML, C4, ArchiMate
+| yes
+| The `asciidoctor-diagram-plantuml` gem bundles PlantUML 1.2026.2 with a stdlib
+  of 30+ libraries, `archimate` and `c4` among them
+
+| Graphviz, Ditaa
+| yes
+| `dot` from the distribution; Ditaa through the `ditaamini` gem and the JVM
+
+| Mermaid
+| no
+| `mermaid-cli` drives a headless browser through Puppeteer; neither `node` nor
+  `mmdc` is in the image
+|===
+
+The everyday cases already work -- C4 and ArchiMate, the two most often named
+alongside Mermaid, among them. Mermaid is nonetheless what many authors reach for
+first, so the gap is real rather than a matter of taste.
+
+Types with no local renderer at all (BPMN 2.0, Excalidraw, Structurizr) need a
+rendering service and are outside this decision.
+
+Two questions follow, and this ADR answers both:
+
+. Does Mermaid go into the base image?
+. Which browser combination renders it?
+
+== Decision
+
+=== Not in the base image
+
+**Whoever does not need Mermaid does not pay for it.**
+
+A browser costs +1.68 GB on a 1.66 GB image -- measured, see below. That is not a
+feature with a price tag; it is a second image wearing the first one's name, and
+no consumer could decline it.
+
+Mermaid support therefore ships as `ghcr.io/tpo42/adoc-with-mermaid`, built from
+`tpo42/adoc`. The base image stays exactly as it is.
+
+The pattern is docToolchain's: `doctoolchain` stays lean and
+`doctoolchain-with-pandoc` sits beside it, for precisely this reason.
+
+=== Debian's chromium, without recommends, with `--no-sandbox`
+
+Three combinations were built from the delivered image and exercised on a
+document with one valid Mermaid block.
+
+[cols="3,1,1,3"]
+|===
+| Combination | Size | Delta | Renders Mermaid?
+
+| **A** -- `nodejs npm` + `npm -g @mermaid-js/mermaid-cli`, Puppeteer downloads its own browser
+| 3.14 GB
+| +1.48 GB
+| **No.** `chrome-headless-shell` aborts on `libatk-1.0.so.0: cannot open shared object file`
+
+| **B** -- the same plus Debian's `chromium`, `PUPPETEER_SKIP_DOWNLOAD=1`
+| 3.34 GB
+| +1.68 GB
+| **Yes**, with a `--no-sandbox` Puppeteer configuration
+
+| **B2** -- B with `--install-recommends`, which pulls `chromium-sandbox`
+| 3.59 GB
+| +1.93 GB
+| **No.** The SUID sandbox needs unprivileged user namespaces; Docker's default
+  seccomp profile refuses with `Failed to move to new namespace ... Operation not
+  permitted`
+|===
+
+Pugh matrix, baseline `0` = combination A.
+
+[cols="3,1,1,1"]
+|===
+| Criterion | A | *B* | B2
+
+| Renders Mermaid at all | 0 (no) | *++* | 0 (no)
+| Image size | 0 | - | --
+| Browser patched by the distribution | 0 | + | +
+| Sandbox usable in a default container | 0 | 0 | 0
+| One browser, not two | 0 | + | +
+| Build simplicity | 0 | 0 | 0
+| *Sum* | *0* | *+2* | *0*
+|===
+
+Only B renders anything, which settles it before the other rows matter. They are
+recorded because each contradicts an expectation held before measuring:
+
+* **A is not the lean option, it is the incomplete one.** Puppeteer ships the
+  browser binary but not the GTK/ATK/X libraries it links against -- exactly the
+  dependency closure Debian's `chromium` package carries. Repairing A means
+  installing that closure, at which point A is B plus a second browser. A also
+  downloads two of them: `chrome` (389 MB) and `chrome-headless-shell` (262 MB).
+* **`chromium-sandbox` relocates the failure rather than fixing it.** Making the
+  SUID sandbox work would require `--security-opt seccomp=unconfined` or
+  `--cap-add SYS_ADMIN` on every invocation -- weakening the container's
+  isolation so the browser's inner isolation can run, and carrying browser
+  concerns into `bin/adcw`. `--no-install-recommends` therefore stays.
+* **No combination gets a working sandbox**, which is why that row is `0`
+  throughout. The variant image ships a Puppeteer configuration with
+  `--no-sandbox` as a default, so consumers do not each have to discover it. In a
+  container the isolation boundary is the container; running Chromium without its
+  own inner sandbox is the ordinary trade every CI makes.
+
+== Consequences
+
+=== Positive
+
+* The base image keeps its size and its self-sufficiency; a project that never
+  writes Mermaid never pays for a browser.
+* The gap is named rather than silent: a Mermaid block validated against the base
+  image reports the missing `mmdc` and the image that has it.
+* The variant is an ordinary derived image -- nothing in `bin/adcw` needs to know
+  about browsers.
+
+=== Negative
+
+* Two images to build, publish and keep in step. The variant must be rebuilt
+  whenever the base moves, or it silently ages.
+* `--no-sandbox` means Chromium runs without its inner sandbox. Acceptable inside
+  a container, and worth revisiting if the images ever run somewhere less
+  contained.
+* A user who wants Mermaid pays 3.34 GB, more than double the base.
+
+== Follow-up
+
+* Build and publish `adoc-with-mermaid`: Containerfile, the Puppeteer default
+  configuration, and a second publish path in `container-publish.yml`.
+* The types with no local renderer remain unsupported. Serving them needs a
+  rendering service, which is a different decision with different constraints --
+  its own ADR when it is taken.

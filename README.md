@@ -180,12 +180,31 @@ ruby:3-trixie                    Debian 13, Ruby 3.x (ADR-001)
 | `asciidoctor` ~> 2.0          | Core AsciiDoc processor                        |
 | `asciidoctor-pdf` ~> 2.3      | PDF generation                                 |
 | `asciidoctor-reducer` ~> 1.0  | Include resolution / flattening                |
-| `asciidoctor-diagram` ~> 3.0  | PlantUML, Graphviz, Mermaid, Ditaa integration |
+| `asciidoctor-diagram` ~> 3.0  | PlantUML, Graphviz, Ditaa (Mermaid: see below) |
 | `asciidoctor-revealjs` ~> 5.2 | Presentation slides                            |
 | `asciidoctor-epub3` ~> 2.2    | EPUB3 generation (experimental, ADR-004)       |
 | `asciidoctor-bibtex` ~> 0.8   | Bibliography support                           |
 | `asciidoctor-kroki` ~> 0.10   | Extended diagram rendering via Kroki           |
 | `rouge` ~> 4.6                | Syntax highlighting                            |
+
+### Diagram Types
+
+PlantUML renders here, and so do the libraries most people reach for with it --
+`c4` and `archimate` are among the 30+ bundled with the PlantUML that the diagram
+gem carries. Graphviz and Ditaa render too.
+
+Mermaid does not. It needs a headless browser, and a browser costs +1.68 GB on a
+1.66 GB image (measured), so it ships as a separate image rather than being
+charged to everyone:
+
+```bash
+adcw validate -i doc.adoc          # PlantUML, C4, ArchiMate, Graphviz, Ditaa
+CONTAINER_IMAGE=ghcr.io/tpo42/adoc-with-mermaid:latest adcw validate -i doc.adoc
+```
+
+A Mermaid block validated against the base image reports a missing `mmdc` and
+names the image that has it. Extracting Mermaid *sources* works everywhere --
+only rendering needs the browser. See [ADR-008](adr/adr-008.adoc).
 
 ### System Tools
 
@@ -349,6 +368,8 @@ All significant decisions are documented as ADRs in `adr/`:
 - **ADR-004**: Include experimental EPUB3 generation capability
 - **ADR-005**: Extensibility strategy -- adcw for speed, devcontainer for comfort
 - **ADR-006**: Shell function compatibility and completion strategy
+- **ADR-007**: Unified script architecture for the container wrappers
+- **ADR-008**: Mermaid ships as a variant image, not in the base
 
 ## tpo42 Framework
 
