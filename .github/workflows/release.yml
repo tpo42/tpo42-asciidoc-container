@@ -31,8 +31,8 @@ jobs:
           echo "latest_tag=${LATEST_TAG}" >> "${GITHUB_OUTPUT}"
           echo "commit_range=${COMMIT_RANGE}" >> "${GITHUB_OUTPUT}"
 
-          SUBJECTS=$(git log ${COMMIT_RANGE} --pretty=format:"%s")
-          BODIES=$(git log ${COMMIT_RANGE} --pretty=format:"%b")
+          SUBJECTS=$(git log "${COMMIT_RANGE}" --pretty=format:"%s")
+          BODIES=$(git log "${COMMIT_RANGE}" --pretty=format:"%b")
 
           BUMP="none"
           if echo "${SUBJECTS}" | grep -qE '^[a-z]+(\(.+\))?!:'; then
@@ -68,7 +68,7 @@ jobs:
         if: steps.version.outputs.new_tag
         run: |
           RANGE="${{ steps.bump.outputs.commit_range }}"
-          git log ${RANGE} --pretty=format:"- %s" > /tmp/release_notes.md
+          git log "${RANGE}" --pretty=format:"- %s" > /tmp/release_notes.md
 
       - name: Create release
         if: steps.version.outputs.new_tag

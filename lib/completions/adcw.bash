@@ -1,6 +1,13 @@
 # Bash completion for adcw
 # Source this file in .bashrc (adcw must be in PATH)
 
+# SC2207 is disabled for this file, not worked around. shellcheck suggests mapfile or
+# read -a instead of COMPREPLY=($(compgen …)), but mapfile is a bash 4 builtin and this
+# repository's own wrappers still run on macOS's /bin/bash 3.2 — the "fix" would be the
+# only thing here that breaks on the platform we support. Word splitting is also exactly
+# what COMPREPLY wants: compgen emits one candidate per line.
+# shellcheck disable=SC2207
+
 _adcw_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local prev="${COMP_WORDS[COMP_CWORD-1]}"

@@ -196,6 +196,9 @@ echo ""
 # List extracted files
 if ls "${OUTPUT_DIR}"/* >/dev/null 2>&1; then
     echo "Extracted files:"
+    # SC2012 suggests find, which is right when the output is parsed. This one is read
+    # by a human — the long format is the point — so ls stays.
+    # shellcheck disable=SC2012
     ls -la "${OUTPUT_DIR}" | sed 's/^/  /'
 else
     echo "💡 No diagrams were extracted"
