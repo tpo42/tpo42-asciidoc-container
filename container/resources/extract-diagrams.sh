@@ -7,7 +7,7 @@ set -u
 set -o pipefail
 
 show_usage() {
-    cat << 'EOF'
+    cat <<'EOF'
 ADCW Extract-Diagrams - Extract diagram sources for analysis
 
 Usage:
@@ -22,7 +22,7 @@ Options:
 Description:
   Extracts diagram source code from AsciiDoc files.
   Supports PlantUML, Graphviz, Mermaid diagrams.
-  
+
   Perfect for LLM context where diagram source code
   is more valuable than rendered images.
 
@@ -39,27 +39,27 @@ FORMAT="source"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -i|--input)
-            INPUT_FILE="$2"
-            shift 2
-            ;;
-        -o|--output)
-            OUTPUT_DIR="$2"
-            shift 2
-            ;;
-        -f|--format)
-            FORMAT="$2"
-            shift 2
-            ;;
-        -h|--help)
-            show_usage
-            exit 0
-            ;;
-        *)
-            echo "❌ Unknown option: $1"
-            show_usage
-            exit 1
-            ;;
+    -i | --input)
+        INPUT_FILE="$2"
+        shift 2
+        ;;
+    -o | --output)
+        OUTPUT_DIR="$2"
+        shift 2
+        ;;
+    -f | --format)
+        FORMAT="$2"
+        shift 2
+        ;;
+    -h | --help)
+        show_usage
+        exit 0
+        ;;
+    *)
+        echo "❌ Unknown option: $1"
+        show_usage
+        exit 1
+        ;;
     esac
 done
 
@@ -95,7 +95,7 @@ echo "   Output: ${OUTPUT_DIR}"
 echo "   Format: ${FORMAT}"
 
 # Ruby script to extract diagram blocks
-cat > /tmp/extract_diagrams.rb << 'RUBY'
+cat >/tmp/extract_diagrams.rb <<'RUBY'
 require 'asciidoctor'
 
 input_file = ARGV[0]
@@ -110,14 +110,14 @@ supported_types = %w[plantuml graphviz mermaid ditaa blockdiag seqdiag actdiag n
 
 # Find all diagram blocks
 doc.find_by do |block|
-  block.context == :literal && 
-  block.style && 
+  block.context == :literal &&
+  block.style &&
   supported_types.include?(block.style.downcase)
 end.each do |diagram_block|
-  
+
   diagram_count += 1
   diagram_type = diagram_block.style.downcase
-  
+
   # Generate filename
   if diagram_block.id
     base_name = diagram_block.id
@@ -126,17 +126,17 @@ end.each do |diagram_block|
   else
     base_name = "diagram_#{diagram_count}"
   end
-  
+
   # Extract source content
   source_content = diagram_block.source
-  
+
   # Write source file
   if format == 'source' || format == 'both'
     source_file = File.join(output_dir, "#{base_name}.#{diagram_type}")
     File.write(source_file, source_content)
     puts "   📄 Extracted source: #{base_name}.#{diagram_type}"
   end
-  
+
   # Generate rendered version if requested
   if format == 'rendered' || format == 'both'
     case diagram_type
@@ -144,24 +144,24 @@ end.each do |diagram_block|
       rendered_file = File.join(output_dir, "#{base_name}.svg")
       temp_file = "/tmp/#{base_name}.plantuml"
       File.write(temp_file, source_content)
-      
+
       if system("plantuml -tsvg -pipe < #{temp_file} > #{rendered_file}")
         puts "   🖼️  Rendered: #{base_name}.svg"
       else
         puts "   ⚠️  Failed to render: #{base_name}.plantuml"
       end
-      
+
     when 'graphviz'
       rendered_file = File.join(output_dir, "#{base_name}.svg")
       temp_file = "/tmp/#{base_name}.dot"
       File.write(temp_file, source_content)
-      
+
       if system("dot -Tsvg #{temp_file} -o #{rendered_file}")
         puts "   🖼️  Rendered: #{base_name}.svg"
       else
         puts "   ⚠️  Failed to render: #{base_name}.dot"
       end
-      
+
     else
       puts "   ⚠️  Rendering not supported for: #{diagram_type}"
     end

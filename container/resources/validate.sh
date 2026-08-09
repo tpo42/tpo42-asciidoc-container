@@ -7,7 +7,7 @@ set -u
 set -o pipefail
 
 show_usage() {
-    cat << 'EOF'
+    cat <<'EOF'
 ADCW Validate - AsciiDoc syntax validation
 
 Usage:
@@ -46,37 +46,37 @@ VERBOSE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --)
-            shift
-            ASCIIDOCTOR_EXTRA=("$@")
-            break
-            ;;
-        -i|--input)
-            INPUT_ARGS+=("$2")
-            shift 2
-            ;;
-        -l|--failure-level)
-            FAILURE_LEVEL="$2"
-            shift 2
-            ;;
-        -s|--strict)
-            STRICT=true
-            shift
-            ;;
-        -v|--verbose)
-            VERBOSE=true
-            shift
-            ;;
-        -h|--help)
-            show_usage
-            exit 0
-            ;;
-        *)
-            # Treat positional arguments as additional input files
-            # (handles shell-expanded globs: validate -i adr/a.adoc adr/b.adoc)
-            INPUT_ARGS+=("$1")
-            shift
-            ;;
+    --)
+        shift
+        ASCIIDOCTOR_EXTRA=("$@")
+        break
+        ;;
+    -i | --input)
+        INPUT_ARGS+=("$2")
+        shift 2
+        ;;
+    -l | --failure-level)
+        FAILURE_LEVEL="$2"
+        shift 2
+        ;;
+    -s | --strict)
+        STRICT=true
+        shift
+        ;;
+    -v | --verbose)
+        VERBOSE=true
+        shift
+        ;;
+    -h | --help)
+        show_usage
+        exit 0
+        ;;
+    *)
+        # Treat positional arguments as additional input files
+        # (handles shell-expanded globs: validate -i adr/a.adoc adr/b.adoc)
+        INPUT_ARGS+=("$1")
+        shift
+        ;;
     esac
 done
 
@@ -135,9 +135,9 @@ ERROR_FILES=0
 # Validate each file
 for file in "${FILES[@]}"; do
     TOTAL_FILES=$((TOTAL_FILES + 1))
-    
+
     echo "📝 Validating: ${file}"
-    
+
     # Validate via asciidoctor (resolves includes, conditionals, cross-references)
     # Use -o - (stdout) instead of --out-file /dev/null: the latter skips rendering
     # and therefore misses invalid reference checks.
@@ -154,11 +154,11 @@ for file in "${FILES[@]}"; do
     if asciidoctor \
         "${asciidoctor_args[@]}" \
         ${ASCIIDOCTOR_EXTRA[@]+"${ASCIIDOCTOR_EXTRA[@]}"} \
-        "${file}" > /dev/null 2>/tmp/validation_output; then
-        
+        "${file}" >/dev/null 2>/tmp/validation_output; then
+
         VALID_FILES=$((VALID_FILES + 1))
         echo "   ✅ Valid"
-        
+
         if [[ "${VERBOSE}" == true ]]; then
             # Show warnings if any
             if [[ -s /tmp/validation_output ]]; then
@@ -172,11 +172,11 @@ for file in "${FILES[@]}"; do
         echo "   🔍 Details:"
         sed 's/^/      /' /tmp/validation_output
     fi
-    
+
     # Additional checks for common issues
     if [[ "${VERBOSE}" == true ]]; then
         echo "   🔍 Additional checks:"
-        
+
         # Check for missing include files
         while IFS= read -r include_line; do
             if [[ -n "${include_line}" ]]; then
@@ -188,7 +188,7 @@ for file in "${FILES[@]}"; do
                 fi
             fi
         done < <(grep -n "^include::" "${file}" 2>/dev/null || true)
-        
+
         # Check for diagram blocks
         if diagram_blocks=$(grep -cE "^\[(plantuml|graphviz|mermaid)" "${file}" 2>/dev/null); then
             echo "      📊 Diagram blocks found: ${diagram_blocks}"
@@ -199,7 +199,7 @@ for file in "${FILES[@]}"; do
             echo "      🔗 Cross-references found: ${xrefs}"
         fi
     fi
-    
+
     echo ""
 done
 

@@ -20,7 +20,7 @@ Basic Operations:
 
 Diagram Support:
   asciidoctor -r asciidoctor-diagram mydoc.adoc
-  
+
 Common Options:
   -a source-highlighter=rouge     # Syntax highlighting
   -a icons=font                   # Font icons

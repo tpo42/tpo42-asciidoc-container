@@ -7,7 +7,7 @@ set -u
 set -o pipefail
 
 show_usage() {
-    cat << 'EOF'
+    cat <<'EOF'
 ADCW Flatten - Resolve includes to self-contained document
 
 Usage:
@@ -21,7 +21,7 @@ Options:
 Description:
   Resolves all include:: directives to create a self-contained
   document suitable for LLM context or analysis.
-  
+
   Diagram sources (PlantUML, Graphviz) are preserved as-is
   for better LLM understanding.
 
@@ -37,23 +37,23 @@ OUTPUT_FILE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -i|--input)
-            INPUT_FILE="$2"
-            shift 2
-            ;;
-        -o|--output)
-            OUTPUT_FILE="$2" 
-            shift 2
-            ;;
-        -h|--help)
-            show_usage
-            exit 0
-            ;;
-        *)
-            echo "❌ Unknown option: $1"
-            show_usage
-            exit 1
-            ;;
+    -i | --input)
+        INPUT_FILE="$2"
+        shift 2
+        ;;
+    -o | --output)
+        OUTPUT_FILE="$2"
+        shift 2
+        ;;
+    -h | --help)
+        show_usage
+        exit 0
+        ;;
+    *)
+        echo "❌ Unknown option: $1"
+        show_usage
+        exit 1
+        ;;
     esac
 done
 

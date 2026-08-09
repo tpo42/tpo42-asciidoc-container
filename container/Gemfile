@@ -6,7 +6,7 @@ source 'https://rubygems.org'
 # Core AsciiDoc processor
 gem 'asciidoctor', '~> 2.0'
 
-# PDF generation capability  
+# PDF generation capability
 gem 'asciidoctor-pdf', '~> 2.3'
 
 # Diagram support (PlantUML, Graphviz, etc.)

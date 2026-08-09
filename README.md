@@ -31,15 +31,15 @@ The container is designed to be **extensible via two paths**: `adcw` for fast, s
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `flatten` | Resolve all `include::` directives into a single self-contained document |
-| `validate` | Best-effort AsciiDoc syntax checking |
-| `extract-diagrams` | Extract PlantUML/Graphviz/Mermaid sources for analysis |
-| `asciidoctor` | Run asciidoctor directly (HTML output) |
-| `asciidoctor-pdf` | Generate PDF documents |
-| `asciidoctor-reducer` | Run asciidoctor-reducer directly |
-| `shell` | Interactive container shell for debugging |
+| Command               | Description                                                              |
+| --------------------- | ------------------------------------------------------------------------ |
+| `flatten`             | Resolve all `include::` directives into a single self-contained document |
+| `validate`            | Best-effort AsciiDoc syntax checking                                     |
+| `extract-diagrams`    | Extract PlantUML/Graphviz/Mermaid sources for analysis                   |
+| `asciidoctor`         | Run asciidoctor directly (HTML output)                                   |
+| `asciidoctor-pdf`     | Generate PDF documents                                                   |
+| `asciidoctor-reducer` | Run asciidoctor-reducer directly                                         |
+| `shell`               | Interactive container shell for debugging                                |
 
 ## Extending the Container
 
@@ -87,11 +87,11 @@ Developer workstations and CI pipelines use the same `devcontainer.json` -- ther
 
 With `adcw` in your PATH, it auto-detects the execution context:
 
-| Context | Detection | Execution |
-|---------|-----------|-----------|
-| Docker Compose | `docker-compose.yml` in cwd | `docker compose exec <service> ...` |
-| Devcontainer | `.devcontainer/devcontainer.json` with tpo42/adoc | `devcontainer exec ...` |
-| Dedicated container | Container runtime available | `<runtime> run ... tpo42/adoc:<tag> ...` |
+| Context             | Detection                                         | Execution                                |
+| ------------------- | ------------------------------------------------- | ---------------------------------------- |
+| Docker Compose      | `docker-compose.yml` in cwd                       | `docker compose exec <service> ...`      |
+| Devcontainer        | `.devcontainer/devcontainer.json` with tpo42/adoc | `devcontainer exec ...`                  |
+| Dedicated container | Container runtime available                       | `<runtime> run ... tpo42/adoc:<tag> ...` |
 
 See [ADR-007](adr/adr-007.adoc) for the design rationale.
 
@@ -112,12 +112,14 @@ Start it first:
 Add `bin/` to your PATH, or install via Homebrew (when available). Optionally load completions:
 
 **Bash (~/.bashrc):**
+
 ```bash
 ADC_PROJECT_HOME=~/src/tpo42-asciidoc-container   # your checkout
 source "${ADC_PROJECT_HOME}/lib/completions/adcw.bash"
 ```
 
 **Zsh (~/.zshrc):**
+
 ```zsh
 ADC_PROJECT_HOME=~/src/tpo42-asciidoc-container   # your checkout
 fpath=("${ADC_PROJECT_HOME}/lib/completions" $fpath)
@@ -131,14 +133,14 @@ See [ADR-006](adr/adr-006.adoc) for shell completion details.
 
 ### Configuration
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
+| Variable           | Purpose                                   | Default                            |
+| ------------------ | ----------------------------------------- | ---------------------------------- |
 | `ADC_PROJECT_HOME` | Path to tpo42-asciidoc-container checkout | auto-detected from script location |
-| `ADOC_COMPOSE` | Explicit docker-compose.yml path | auto-detect |
-| `ADOC_SERVICE` | Service name in compose file | auto-detected |
-| `ADOC_WORKSPACE` | Workspace folder for devcontainer | `.` |
-| `CONTAINER_TAG` | Explicit container tag | git describe or `latest` |
-| `CONTAINER_IMAGE` | Explicit full image reference | `tpo42/adoc:<tag>` |
+| `ADOC_COMPOSE`     | Explicit docker-compose.yml path          | auto-detect                        |
+| `ADOC_SERVICE`     | Service name in compose file              | auto-detected                      |
+| `ADOC_WORKSPACE`   | Workspace folder for devcontainer         | `.`                                |
+| `CONTAINER_TAG`    | Explicit container tag                    | git describe or `latest`           |
+| `CONTAINER_IMAGE`  | Explicit full image reference             | `tpo42/adoc:<tag>`                 |
 
 ### Examples
 
@@ -173,17 +175,17 @@ ruby:3-trixie                    Debian 13, Ruby 3.x (ADR-001)
 
 ### Pre-installed AsciiDoc Toolchain
 
-| Gem | Purpose |
-|-----|---------|
-| `asciidoctor` ~> 2.0 | Core AsciiDoc processor |
-| `asciidoctor-pdf` ~> 2.3 | PDF generation |
-| `asciidoctor-reducer` ~> 1.0 | Include resolution / flattening |
-| `asciidoctor-diagram` ~> 3.0 | PlantUML, Graphviz, Mermaid, Ditaa integration |
-| `asciidoctor-revealjs` ~> 5.2 | Presentation slides |
-| `asciidoctor-epub3` ~> 2.2 | EPUB3 generation (experimental, ADR-004) |
-| `asciidoctor-bibtex` ~> 0.8 | Bibliography support |
-| `asciidoctor-kroki` ~> 0.10 | Extended diagram rendering via Kroki |
-| `rouge` ~> 4.6 | Syntax highlighting |
+| Gem                           | Purpose                                        |
+| ----------------------------- | ---------------------------------------------- |
+| `asciidoctor` ~> 2.0          | Core AsciiDoc processor                        |
+| `asciidoctor-pdf` ~> 2.3      | PDF generation                                 |
+| `asciidoctor-reducer` ~> 1.0  | Include resolution / flattening                |
+| `asciidoctor-diagram` ~> 3.0  | PlantUML, Graphviz, Mermaid, Ditaa integration |
+| `asciidoctor-revealjs` ~> 5.2 | Presentation slides                            |
+| `asciidoctor-epub3` ~> 2.2    | EPUB3 generation (experimental, ADR-004)       |
+| `asciidoctor-bibtex` ~> 0.8   | Bibliography support                           |
+| `asciidoctor-kroki` ~> 0.10   | Extended diagram rendering via Kroki           |
+| `rouge` ~> 4.6                | Syntax highlighting                            |
 
 ### System Tools
 
@@ -196,16 +198,16 @@ ruby:3-trixie                    Debian 13, Ruby 3.x (ADR-001)
 
 ADCW explores Ruby-native alternatives for common docToolchain use cases. Some may turn out better, some may confirm that docToolchain's existing approach is already the right one:
 
-| docToolchain task | ADCW equivalent |
-|-------------------|-----------------|
-| `generateHTML` | `adcw asciidoctor` |
-| `generatePDF` | `adcw asciidoctor-pdf` |
-| `generateDeck` | `adcw asciidoctor -r asciidoctor-revealjs` |
-| `collectIncludes` / flatten | `adcw flatten` |
-| `generateSite` (jBake) | Jekyll via devcontainer (see ADR-005) |
-| `publishToConfluence` | open |
-| Jira integration | open |
-| `htmlSanityCheck` | `adcw validate` (different scope) |
+| docToolchain task           | ADCW equivalent                            |
+| --------------------------- | ------------------------------------------ |
+| `generateHTML`              | `adcw asciidoctor`                         |
+| `generatePDF`               | `adcw asciidoctor-pdf`                     |
+| `generateDeck`              | `adcw asciidoctor -r asciidoctor-revealjs` |
+| `collectIncludes` / flatten | `adcw flatten`                             |
+| `generateSite` (jBake)      | Jekyll via devcontainer (see ADR-005)      |
+| `publishToConfluence`       | open                                       |
+| Jira integration            | open                                       |
+| `htmlSanityCheck`           | `adcw validate` (different scope)          |
 
 ## Project Structure
 
@@ -242,21 +244,21 @@ tpo42-asciidoc-container/
 
 ## Volume Mapping
 
-| Host | Container | Purpose |
-|------|-----------|---------|
-| `${PWD}` | `/workspace` | Project source files |
-| `${PWD}/build` | `/build` | Generated output |
+| Host           | Container    | Purpose              |
+| -------------- | ------------ | -------------------- |
+| `${PWD}`       | `/workspace` | Project source files |
+| `${PWD}/build` | `/build`     | Generated output     |
 
 ## Container Versioning
 
 Tags are derived from `git describe`:
 
-| Git state | Container tag |
-|-----------|---------------|
-| `heads/main` | `latest` |
+| Git state           | Container tag |
+| ------------------- | ------------- |
+| `heads/main`        | `latest`      |
 | `heads/feature/xyz` | `feature-xyz` |
-| `v1.0.0` | `v1.0.0` |
-| dirty working tree | `*-dirty` |
+| `v1.0.0`            | `v1.0.0`      |
+| dirty working tree  | `*-dirty`     |
 
 ## Container Runtime
 
