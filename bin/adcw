@@ -189,6 +189,8 @@ _adcw_setup_compose() {
     local compose_cmd
     compose_cmd="$(_adcw_find_compose_cmd)" || return 1
     read -r -a _adcw_compose_cmd <<< "${compose_cmd}"
+
+    _adcw_check_compose_running || return 1
 }
 
 _adcw_setup_devcontainer() {
@@ -197,6 +199,8 @@ _adcw_setup_devcontainer() {
         echo "Install it via: npm install -g @devcontainers/cli" >&2
         return 1
     fi
+
+    _adcw_check_devcontainer_running || return 1
 }
 
 _adcw_setup_spec_container() {
@@ -217,6 +221,47 @@ _adcw_setup_spec_container() {
     fi
 
     test -d "${PWD}/build" || mkdir -p "${PWD}/build"
+}
+
+# --- Readiness checks ---
+#
+# adcw execs into an *existing* container -- it never starts infrastructure
+# behind the user's back. When nothing is running, say so and name the command
+# that fixes it. Both checks stay silent when the state cannot be determined;
+# the underlying tool then reports the real problem.
+
+_adcw_check_compose_running() {
+    local running
+    running="$("${_adcw_compose_cmd[@]}" -f "${compose_path}" ps -q "${service}" 2>/dev/null)" || return 0
+    [[ -n "${running}" ]] && return 0
+
+    echo "Error: Compose service '${service}' is not running (${compose_path})" >&2
+    echo "" >&2
+    echo "Start it first:" >&2
+    echo "  ${_adcw_compose_cmd[*]} -f $(printf '%q' "${compose_path}") up -d $(printf '%q' "${service}")" >&2
+    return 1
+}
+
+_adcw_check_devcontainer_running() {
+    # The devcontainer CLI drives docker (or podman); Apple's `container` and
+    # nerdctl are not candidates here, so do not use _adcw_detect_runner.
+    local probe_bin
+    probe_bin="$(command -v docker)" || probe_bin="$(command -v podman)" || return 0
+
+    # The CLI labels containers with the *resolved* local folder
+    local workspace_abs
+    workspace_abs="$(realpath "${workspace}" 2>/dev/null)" || return 0
+
+    local running
+    running="$("${probe_bin}" ps -q \
+        --filter "label=devcontainer.local_folder=${workspace_abs}" 2>/dev/null)" || return 0
+    [[ -n "${running}" ]] && return 0
+
+    echo "Error: No running dev container for workspace: ${workspace_abs}" >&2
+    echo "" >&2
+    echo "Start it first:" >&2
+    echo "  devcontainer up --workspace-folder $(printf '%q' "${workspace}")" >&2
+    return 1
 }
 
 # --- Helpers ---

@@ -95,6 +95,18 @@ With `adcw` in your PATH, it auto-detects the execution context:
 
 See [ADR-007](adr/adr-007.adoc) for the design rationale.
 
+The compose and devcontainer contexts *exec into an existing container* — `adcw`
+never starts infrastructure implicitly. If nothing is running, it says which
+command to run:
+
+```console
+$ adcw validate -i doc.adoc
+Error: No running dev container for workspace: /home/me/project
+
+Start it first:
+  devcontainer up --workspace-folder .
+```
+
 ### Setup
 
 Add `bin/` to your PATH, or install via Homebrew (when available). Optionally load completions:

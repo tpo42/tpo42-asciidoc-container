@@ -63,6 +63,32 @@ happened, so embedded `'...'` quotes are passed *literally* to the command
 
 `lib/adcw-function.bash` is removed.
 
+=== Readiness checks
+
+`adcw` execs into an *existing* container; it never starts infrastructure
+implicitly. A wrapper that silently runs `devcontainer up` or `compose up`
+hides lifecycle state the user owns -- including build time, port bindings and
+`postCreateCommand` side effects.
+
+Instead, both exec modes pre-flight the container state and, when nothing is
+running, fail with the command that fixes it:
+
+* **Compose**: `${compose_cmd} -f "${compose_path}" ps -q "${service}"` --
+  empty output means "no running container" (`ps -q` lists running services
+  only; `-a` would include stopped ones).
+* **Devcontainer**: `docker ps -q --filter label=devcontainer.local_folder=<abs>`
+  -- the devcontainer CLI labels its containers with the resolved local folder.
+  The probe deliberately uses `docker`/`podman` rather than
+  `_adcw_detect_runner`, because the devcontainer CLI itself drives only those.
+
+Both checks are advisory: if the state cannot be determined (no probe binary,
+daemon down, `realpath` failure), they stay silent and let the underlying tool
+report the real problem. `adcw` only claims "not running" when it knows.
+
+Because probing costs a process, the command dispatch resolves `container_argv`
+*before* the mode setup runs: `adcw help`, an unknown command or a missing
+command are answered from the arguments alone and never touch a container.
+
 === Environment variables
 
 [cols="1,3"]
