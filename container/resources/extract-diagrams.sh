@@ -128,9 +128,14 @@ doc = Asciidoctor.load_file(input_file, safe: :unsafe)
 diagram_count = 0
 supported_types = %w[plantuml graphviz mermaid ditaa blockdiag seqdiag actdiag nwdiag packetdiag rackdiag c4plantuml]
 
-# Find all diagram blocks
+# Find all diagram blocks.
+#
+# Both delimiters count. `....` gives a literal block, `----` a listing block, and
+# asciidoctor-diagram accepts either — its own documentation uses `----` throughout, so
+# matching only :literal missed the form most documents are written in and reported
+# "No diagrams found" for them.
 doc.find_by do |block|
-  block.context == :literal &&
+  [:literal, :listing].include?(block.context) &&
   block.style &&
   supported_types.include?(block.style.downcase)
 end.each do |diagram_block|
