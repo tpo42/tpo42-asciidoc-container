@@ -18,10 +18,50 @@ fi
 # shellcheck source=../lib/adcw-common.bash
 source "${_ADCW_LIB_DIR}/adcw-common.bash"
 
+# The Containerfile carries two stages. --target is not optional here: without it
+# buildx builds the *last* one, which is the variant carrying a browser — 1.68 GB
+# nobody asked for.
+BUILD_TARGET="adoc"
+IMAGE_NAME="tpo42/adoc"
+
+case "${1:-}" in
+--with-mermaid)
+    BUILD_TARGET="adoc-with-mermaid"
+    IMAGE_NAME="tpo42/adoc-with-mermaid"
+    shift
+    ;;
+-h | --help)
+    echo "Usage: adcbw [--with-mermaid]"
+    echo ""
+    echo "  (default)        Build tpo42/adoc — the delivered toolchain"
+    echo "  --with-mermaid   Build tpo42/adoc-with-mermaid — the same plus a browser,"
+    echo "                   roughly twice the size (ADR-008)"
+    exit 0
+    ;;
+"") ;;
+*)
+    # A mistyped flag must not fall through to the default target: building the wrong
+    # image while reporting success is the worst of the available answers.
+    echo "Unknown option: $1" >&2
+    echo "Usage: adcbw [--with-mermaid]" >&2
+    exit 1
+    ;;
+esac
+
+# The case above consumes at most one argument, so anything left was silently discarded
+# before — `adcbw --with-mermaid --no-cache` built the variant and dropped the rest
+# without a word. There is nothing here that takes a second argument, so a leftover is
+# always a misunderstanding worth reporting.
+if [[ $# -gt 0 ]]; then
+    echo "Unexpected argument: $1" >&2
+    echo "Usage: adcbw [--with-mermaid]" >&2
+    exit 1
+fi
+
 _adcw_detect_runner
 _adcw_detect_tag
 
-CONTAINER_IMAGE="tpo42/adoc:${CONTAINER_TAG}"
+CONTAINER_IMAGE="${IMAGE_NAME}:${CONTAINER_TAG}"
 
 echo "Building ADCW Container: ${CONTAINER_IMAGE}"
 echo "   Using: ${_ADCW_CONTAINER_RUNNER_BIN}"
@@ -31,6 +71,7 @@ ${_ADCW_CONTAINER_RUNNER_BIN} buildx build \
     --build-arg=USER_GID="$(id -g)" \
     --build-arg=USER_NAME="$(id -un)" \
     --build-arg=USER_GROUP_NAME="$(id -gn)" \
+    --target="${BUILD_TARGET}" \
     --file "${ADC_PROJECT_HOME}/container/Containerfile" \
     --tag="${CONTAINER_IMAGE}" \
     "${ADC_PROJECT_HOME}/container"

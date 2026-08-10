@@ -134,7 +134,11 @@ recorded because each contradicts an expectation held before measuring:
 * `--no-sandbox` means Chromium runs without its inner sandbox. Acceptable inside
   a container, and worth revisiting if the images ever run somewhere less
   contained.
-* A user who wants Mermaid pays 3.34 GB, more than double the base.
+* A user who wants Mermaid pays for a browser. The probe measured 3.34 GB against a
+  1.66 GB base; the image as built comes to 2.84 GB against 1.62 GB, because the two
+  stages share their common layers, `npm cache clean` runs, and mermaid-cli is pinned
+  to a major rather than left open. Still a 75 % surcharge, and still not something to
+  charge everyone.
 
 == Follow-up
 

@@ -15,6 +15,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: tpo42/adoc
+  MERMAID_IMAGE_NAME: tpo42/adoc-with-mermaid
   TEST_TAG: tpo42/adoc:ci-${{ github.sha }}
 
 jobs:
@@ -37,11 +38,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # target is not optional: the Containerfile carries two stages, and without it
+      # buildx builds the last one — the variant with a browser in it.
       - name: Build image for testing
         uses: docker/build-push-action@v7
         with:
           context: container
           file: container/Containerfile
+          target: adoc
           load: true
           tags: ${{ env.TEST_TAG }}
           cache-from: type=gha
@@ -115,9 +119,41 @@ jobs:
         with:
           context: container
           file: container/Containerfile
+          target: adoc
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The Mermaid variant, published beside the toolchain rather than inside it
+      # (ADR-008). Same stages, same cache, same tag scheme — a consumer picking
+      # ghcr.io/tpo42/adoc-with-mermaid:0 gets the same toolchain version they would
+      # get from ghcr.io/tpo42/adoc:0, plus a browser.
+      - name: Extract metadata for the Mermaid variant
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+        id: meta-mermaid
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.MERMAID_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
+            type=raw,value=${{ steps.version.outputs.minor }},enable=${{ steps.version.outputs.minor != '' }}
+            type=raw,value=${{ steps.version.outputs.major }},enable=${{ steps.version.outputs.major != '' }}
+            type=sha
+
+      - name: Build and push the Mermaid variant (multi-platform)
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+        uses: docker/build-push-action@v7
+        with:
+          context: container
+          file: container/Containerfile
+          target: adoc-with-mermaid
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-mermaid.outputs.tags }}
+          labels: ${{ steps.meta-mermaid.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
