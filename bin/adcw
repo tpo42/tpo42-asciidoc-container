@@ -130,10 +130,8 @@ adcw() {
             echo "Error: ADOC_COMPOSE file not found: ${ADOC_COMPOSE}" >&2
             return 1
         fi
-    elif [[ -f "docker-compose.yml" ]]; then
-        compose_path="docker-compose.yml"
-    elif [[ -f "docker-compose.yaml" ]]; then
-        compose_path="docker-compose.yaml"
+    else
+        compose_path="$(_adcw_detect_compose_path)"
     fi
 
     if [[ -n "${compose_path}" ]]; then
@@ -233,6 +231,36 @@ _adcw_setup_spec_container() {
     fi
 
     test -d "${PWD}/build" || mkdir -p "${PWD}/build"
+}
+
+# --- Compose discovery ---
+
+# Print the compose file to use, or nothing.
+#
+# The Compose specification prefers compose.yaml and keeps docker-compose.* for
+# backwards compatibility, so both are searched — spec names first. Within each pair the
+# order is the one `docker compose` itself applies, which is not symmetric: compose.yaml
+# beats compose.yml, but docker-compose.yml beats docker-compose.yaml. Measured against
+# the tool rather than taken from the documentation. Choosing a different file than
+# plain compose would have chosen, and then forcing it with -f, is the kind of trap that
+# only shows up in a repository that happens to carry both.
+#
+# A compose file only counts when it carries this toolchain. A project whose compose
+# file describes something else entirely is not a compose project *for adcw*, and
+# falling through to the dedicated container serves it better than failing over a
+# service that was never supposed to be there. ADOC_SERVICE turns the check off: naming
+# a service is a statement that the caller knows what is in the file.
+_adcw_detect_compose_path() {
+    local candidate
+    for candidate in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
+        [[ -f "${candidate}" ]] || continue
+        if [[ -n "${ADOC_SERVICE:-}" ]] ||
+            grep -qE 'image:.*(ghcr\.io/)?tpo42/adoc' "${candidate}" 2>/dev/null; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+    return 0
 }
 
 # --- Runtime peculiarities ---
