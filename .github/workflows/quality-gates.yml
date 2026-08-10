@@ -77,15 +77,6 @@ jobs:
             mini: docker compose -f qa-compose.yml exec -T tpo42-adc-mini
           EOF
 
-      # The adoc gate validates against the image built from *this* commit, which is the
-      # whole point of dogfooding it here rather than pulling a published tag. The tag is
-      # pinned to the same value lefthook.yml gives the gate; a runner builds it fresh
-      # every time, so "fixed tag" and "image of this commit" do not conflict here.
-      - name: Build the delivered image
-        env:
-          CONTAINER_TAG: local
-        run: ./bin/adcbw
-
       # The runner's identity, so the container writes files this job can still read and
       # rewrite. Passed here rather than as job-level env because it has to be asked for.
       - name: Start the tool container
@@ -93,15 +84,60 @@ jobs:
           USER_UID="$(id -u)" USER_GID="$(id -g)" \
             docker compose -f qa-compose.yml up -d --build tpo42-adc-mini
 
-      # {staged_files} is empty on a runner, hence --all-files.
-      - name: Run the hook fleet
-        run: lefthook run pre-commit --all-files --no-auto-install
+      # Printed rather than assumed. bin/adcw picks a runtime by itself, and what it
+      # finds here decided a failure once already: podman comes before docker in its
+      # search order, and this runner carries both.
+      - name: Which container runtimes this runner carries
+        run: |
+          for r in container nerdctl finch podman docker; do
+            printf '%-10s %s\n' "${r}" "$(command -v "${r}" || echo '—')"
+          done
 
-      # The regression suites sit in pre-push locally, where they are paid for once per
-      # push instead of once per `git commit --amend`. CI has no such economy to make:
-      # it runs everything, every time.
-      - name: Run the regression suites
-        run: lefthook run pre-push --all-files --no-auto-install
+      # Everything that does not need the delivered image. {staged_files} is empty on a
+      # runner, hence --all-files.
+      - name: Static gates
+        run: lefthook run pre-commit --all-files --tag mini --tag test --no-auto-install
+
+      # The domain gates and both regression suites go through bin/adcw, so they see
+      # whichever runtime it picks — and the runtimes differ in ways that matter.
+      # Rootless podman maps uids, so a container writing into the workspace needs
+      # --userns=keep-id, while docker needs nothing. Running the same gates once per
+      # available runtime keeps that true instead of assumed. The image is built per
+      # runtime because images are not shared between them.
+      #
+      # A matrix in spirit; deliberately not an Actions matrix, so the set adapts to
+      # whatever a runner happens to carry rather than being declared in advance.
+      - name: Container gates, once per runtime
+        env:
+          CONTAINER_TAG: local
+        run: |
+          set -u
+          rc=0
+          ran=0
+          for runtime in podman docker; do
+            bin="$(command -v "${runtime}")" || continue
+            ran=$((ran + 1))
+            echo "::group::${runtime}"
+            export _ADCW_CONTAINER_RUNNER_BIN="${bin}"
+            # set -u is not set -e: a failing build would otherwise pass unnoticed and
+            # the job go green on the gates that ran afterwards — against whatever image
+            # happened to be lying around. A failure skips this runtime's gates rather
+            # than running them on a lie.
+            if ! ./bin/adcbw; then
+              echo "::error ::${runtime}: building the image failed"
+              rc=1
+              echo "::endgroup::"
+              continue
+            fi
+            lefthook run pre-commit --all-files --tag domain --no-auto-install || rc=1
+            lefthook run pre-push --all-files --no-auto-install || rc=1
+            echo "::endgroup::"
+          done
+          if [ "${ran}" -eq 0 ]; then
+            echo "::error ::no container runtime on this runner"
+            exit 1
+          fi
+          exit "${rc}"
 
       # Everything below needs a range, so it only applies to pull requests. Findings are
       # collected rather than raised on the first one: a contributor should see every
@@ -178,6 +214,15 @@ jobs:
 
       - name: Record the interpreter under test
         run: /bin/bash --version | head -1
+
+      # The runner-images documentation lists no container section for macOS, which is
+      # not the same as none being installed. Probed rather than inferred: if something
+      # turns up here, the container gates can move onto this platform too.
+      - name: Which container runtimes this runner carries
+        run: |
+          for r in container nerdctl finch podman docker colima; do
+            printf '%-10s %s\n' "${r}" "$(command -v "${r}" || echo '—')"
+          done
 
       # --tag shell selects shellcheck, shellcheck-sourced, shfmt, zsh-syntax and the
       # unit tests. The AsciiDoc gate is tagged domain and stays on the Linux job, where
