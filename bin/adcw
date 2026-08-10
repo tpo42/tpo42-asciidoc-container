@@ -330,20 +330,40 @@ _adcw_find_adoc_service() {
     ' "${compose_path}"
 }
 
+# Compose follows the runtime, it does not pick its own. `docker compose` against a
+# podman setup is not a different spelling of the same thing — it is a different engine
+# with different containers, and the previous fixed order handed exactly that to anyone
+# whose runtime was not docker.
 _adcw_find_compose_cmd() {
-    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-        echo "docker compose"
+    _adcw_detect_runner || return 1
+
+    local runner
+    runner="$(basename "${_ADCW_CONTAINER_RUNNER_BIN}")"
+
+    # Every modern runtime carries compose as a subcommand.
+    if "${_ADCW_CONTAINER_RUNNER_BIN}" compose version >/dev/null 2>&1; then
+        echo "${_ADCW_CONTAINER_RUNNER_BIN} compose"
         return 0
     fi
-    if command -v docker-compose >/dev/null 2>&1; then
-        echo "docker-compose"
-        return 0
-    fi
-    if command -v podman-compose >/dev/null 2>&1; then
-        echo "podman-compose"
-        return 0
-    fi
-    echo "Error: No compose command found (docker compose, docker-compose, or podman-compose)" >&2
+
+    # The standalone implementations, each belonging to exactly one runtime.
+    case "${runner}" in
+    docker)
+        if command -v docker-compose >/dev/null 2>&1; then
+            echo "docker-compose"
+            return 0
+        fi
+        ;;
+    podman)
+        if command -v podman-compose >/dev/null 2>&1; then
+            echo "podman-compose"
+            return 0
+        fi
+        ;;
+    esac
+
+    echo "Error: ${runner} has no compose support installed" >&2
+    echo "Set _ADCW_CONTAINER_RUNNER_BIN to pick a different runtime." >&2
     return 1
 }
 
