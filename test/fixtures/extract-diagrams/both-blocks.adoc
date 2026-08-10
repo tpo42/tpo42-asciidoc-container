@@ -1,0 +1,13 @@
+= Both Delimiters
+
+[plantuml]
+----
+@startuml
+A -> B
+@enduml
+----
+
+[graphviz]
+....
+digraph g { a -> b }
+....

@@ -1,0 +1,7 @@
+= Mermaid Block
+
+[mermaid]
+----
+graph TD
+  A --> B
+----

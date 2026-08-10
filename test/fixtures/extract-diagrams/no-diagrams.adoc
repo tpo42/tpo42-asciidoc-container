@@ -1,0 +1,8 @@
+= No Diagrams Here
+
+Just prose, and a listing that is not a diagram:
+
+[source,ruby]
+----
+puts "hello"
+----
