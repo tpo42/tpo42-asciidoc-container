@@ -1,0 +1,72 @@
+# Housekeeping for the container registry.
+#
+# Every push publishes, including branch pushes — that is deliberate (see
+# container-publish.yml): most contributions arrive as forks, and a fork's build lands
+# in its author's own namespace where they can actually pull and test it. The price is
+# that branch images accumulate, and GHCR has no per-tag expiry to lean on.
+#
+# Two mechanisms, because one of them is exact and the other is a net:
+#
+#   on: delete    — a branch goes away, its image goes with it. Precise, immediate, and
+#                   covers the ordinary end of a branch's life.
+#   on: schedule  — weekly, for everything the first mechanism missed: branches nobody
+#                   deleted, and the sha- tags that no branch deletion refers to.
+#
+# What is never touched: `latest` and anything that looks like a version. A registry is
+# a distribution channel, and a cleanup job that can delete a release is a liability
+# rather than housekeeping.
+---
+name: registry cleanup
+
+on:
+  delete:
+  schedule:
+    # Friday, 02:30 UTC
+    - cron: "30 2 * * 5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      # Both steps below run scripts from the repository, and a job starts with an empty
+      # workspace. Neither `on: delete` nor `on: schedule` brings one along.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Remove the image belonging to a deleted branch
+        if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          DELETED_REF: ${{ github.event.ref }}
+        run: |
+          set -u
+          # metadata-action lowercases and replaces every character that a tag may not
+          # carry; feature/foo becomes feature-foo. The same transformation has to
+          # happen here or the tag is never found.
+          # -n, because the trailing newline is not in the allowed set either: `tr -c`
+          # turned it into one more dash, every slug ended in one, and the tag matched
+          # nothing. This step then deleted nothing and looked like a branch without an
+          # image.
+          slug="$(echo -n "${DELETED_REF}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+          echo "branch ${DELETED_REF} → tag ${slug}"
+
+          for package in adoc adoc-with-mermaid; do
+            bash .github/scripts/ghcr-delete-tag.sh "${OWNER}" "${package}" "${slug}"
+          done
+
+      - name: Sweep what the branch deletions missed
+        if: github.event_name != 'delete'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -u
+          for package in adoc adoc-with-mermaid; do
+            bash .github/scripts/ghcr-sweep.sh "${OWNER}" "${package}" 7
+          done
