@@ -1,0 +1,8 @@
+= Literal Block
+
+[plantuml]
+....
+@startuml
+Alice -> Bob : hello
+@enduml
+....

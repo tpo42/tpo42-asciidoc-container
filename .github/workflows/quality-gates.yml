@@ -97,6 +97,12 @@ jobs:
       - name: Run the hook fleet
         run: lefthook run pre-commit --all-files --no-auto-install
 
+      # The regression suites sit in pre-push locally, where they are paid for once per
+      # push instead of once per `git commit --amend`. CI has no such economy to make:
+      # it runs everything, every time.
+      - name: Run the regression suites
+        run: lefthook run pre-push --all-files --no-auto-install
+
       # Everything below needs a range, so it only applies to pull requests. Findings are
       # collected rather than raised on the first one: a contributor should see every
       # message that needs amending in one pass, not one per round trip.

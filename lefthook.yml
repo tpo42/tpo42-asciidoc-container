@@ -211,18 +211,34 @@ pre-commit:
         CONTAINER_TAG: local
       run: "{adoc} validate -i 'adr/*.adoc' -i 'req/*.adoc' --strict"
 
-    # Regression suite for validate itself — one fixture per defect class it is supposed
-    # to catch, plus a clean control and a check that --no-diagrams really opts out.
-    # Deliberately without a template: it drives bin/adcw, which starts the container
-    # itself, so dispatching it into one would nest containers.
-    #
-    # Runs only when validate, the suite or its fixtures change; it costs a container
-    # start per case, which is too much to pay on every commit and exactly right on the
-    # commits that can break it.
+
+# The regression suites live here rather than in pre-commit because they cost a
+# container start per case — seconds, not milliseconds. A pre-commit hook runs on every
+# `git commit --amend`, so an interactive rebase over seven commits would pay for them
+# seven times while the tool under test never changed. Pushing is the last moment where
+# paying is still useful, and nothing stops anyone from running them by hand:
+#
+#   lefthook run pre-push --all-files
+#
+# They drive bin/adcw, which starts the container itself, so they carry no template —
+# dispatching them into one would nest containers.
+pre-push:
+  parallel: true
+  jobs:
+
+    # One fixture per defect class validate is supposed to catch, plus a clean control
+    # and a check that --no-diagrams really opts out.
     - name: validate-cases
       tags: [domain, asciidoc, test]
       glob: "{container/resources/validate.sh,test/validate-cases.bash,test/fixtures/validate/*,bin/adcw}"
       run: /bin/bash test/validate-cases.bash
+
+    # Both block delimiters, the mixed document, the empty one, rendering through the
+    # gem's PlantUML jar, and the type this image does not render.
+    - name: extract-diagrams-cases
+      tags: [domain, asciidoc, test]
+      glob: "{container/resources/extract-diagrams.sh,test/extract-diagrams-cases.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
+      run: /bin/bash test/extract-diagrams-cases.bash
 
 commit-msg:
   jobs:
