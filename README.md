@@ -193,14 +193,20 @@ PlantUML renders here, and so do the libraries most people reach for with it --
 `c4` and `archimate` are among the 30+ bundled with the PlantUML that the diagram
 gem carries. Graphviz and Ditaa render too.
 
-Mermaid does not. It needs a headless browser, and a browser costs +1.68 GB on a
-1.66 GB image (measured), so it ships as a separate image rather than being
-charged to everyone:
+Mermaid does not. It needs a headless browser, and that browser adds roughly 75 %
+to the image, so it ships as a separate one rather than being charged to
+everyone:
 
 ```bash
 adcw validate -i doc.adoc          # PlantUML, C4, ArchiMate, Graphviz, Ditaa
 CONTAINER_IMAGE=ghcr.io/tpo42/adoc-with-mermaid:latest adcw validate -i doc.adoc
+
+./bin/adcbw                        # build the toolchain
+./bin/adcbw --with-mermaid         # build the variant that renders Mermaid
 ```
+
+Both come from one `container/Containerfile` with two stages, so the variant
+never has to wait for the base image to be published somewhere.
 
 A Mermaid block validated against the base image reports a missing `mmdc` and
 names the image that has it. Extracting Mermaid *sources* works everywhere --

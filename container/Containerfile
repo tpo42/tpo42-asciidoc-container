@@ -2,7 +2,20 @@
 # Modern Ruby-based AsciiDoc toolchain for TPO42 Framework
 # Base image rationale: see adr/adr-001.adoc
 #
-FROM ruby:3-trixie
+# Two images, one file, selected with --target:
+#
+#   buildx build --target=adoc              -t tpo42/adoc:TAG              container
+#   buildx build --target=adoc-with-mermaid -t tpo42/adoc-with-mermaid:TAG container
+#
+# The second stage builds FROM the first rather than from a published tag, so neither
+# image has to exist in a registry before the other can be built. A `FROM
+# ghcr.io/tpo42/adoc:latest` would have meant that the variant could only ever be built
+# against the *previous* release — and not at all on a pull request.
+
+# ============================================================
+# Stage 1: the delivered AsciiDoc toolchain
+# ============================================================
+FROM ruby:3-trixie AS adoc
 
 LABEL maintainer="Jens Rehsack <rehsack+tpo42@posteo.de>"
 LABEL description="AsciiDoc Container Wrapper - Lean toolchain for TPO42 operations"
@@ -131,3 +144,55 @@ CMD ["/bin/bash"]
 # docker run --rm -v $(pwd):/workspace ghcr.io/tpo42/adoc:latest asciidoctor mydoc.adoc
 # docker run --rm -v $(pwd):/workspace ghcr.io/tpo42/adoc:latest asciidoctor-pdf mydoc.adoc
 # docker run -it --rm -v $(pwd):/workspace ghcr.io/tpo42/adoc:latest bash
+
+# ============================================================
+# Stage 2: the same toolchain plus a browser, for Mermaid
+#
+# Mermaid renders through mermaid-cli, which drives headless Chromium through
+# Puppeteer. That browser costs +1.68 GB on a 1.66 GB image, measured, so it does not
+# go into stage 1: whoever does not need Mermaid does not pay for it. The pattern is
+# docToolchain's doctoolchain-with-pandoc. ADR-008 carries the measurements and the two
+# combinations that were tried and rejected.
+#
+# PlantUML with its C4 and ArchiMate libraries, Graphviz and Ditaa all come from stage 1
+# and are not repeated.
+# ============================================================
+FROM adoc AS adoc-with-mermaid
+
+USER 0
+
+# Debian's chromium, not the one Puppeteer would fetch. Puppeteer ships the browser
+# binary but not the GTK/ATK/X libraries it links against, so its copy aborts on a
+# missing libatk-1.0.so.0 — and installing that dependency closure is precisely what
+# the distribution package already does. One browser, patched by the distribution.
+ENV PUPPETEER_SKIP_DOWNLOAD=1
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# --no-install-recommends stays. The recommend that looks relevant, chromium-sandbox,
+# costs 250 MB and makes matters worse: its SUID sandbox needs unprivileged user
+# namespaces, which the container runtime's default seccomp profile refuses.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        chromium \
+        nodejs \
+        npm
+
+RUN npm install -g @mermaid-js/mermaid-cli@11 \
+    && npm cache clean --force \
+    && mv /usr/local/bin/mmdc /usr/local/bin/mmdc-real
+
+COPY resources/puppeteer.json /etc/tpo42/puppeteer.json
+COPY resources/mmdc-wrapper.sh /usr/local/bin/mmdc
+RUN chmod +x /usr/local/bin/mmdc
+
+# Fail here rather than at a consumer's first diagram.
+RUN mmdc --version && chromium --version
+
+ARG USER_UID="1000"
+USER ${USER_UID}
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
