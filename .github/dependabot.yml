@@ -1,0 +1,49 @@
+# Dependabot — what it can reach of this repository's pinned versions.
+#
+# The commit-message prefixes are not cosmetic. .gitlint exempts dependabot from T1 and
+# body-min-length, but not from the conventional-commits rule, and quality-gates checks
+# every commit message in a pull-request range. Without a prefix naming a known type,
+# every Dependabot pull request would fail its own gate.
+#
+# What Dependabot cannot see here: the ARG-pinned release binaries in
+# container/mini.Containerfile — editorconfig-checker, actionlint, gitleaks, hadolint,
+# dclint — plus the pip pins beside them, LEFTHOOK_VERSION in the workflows, and the
+# npm install of mermaid-cli in the Containerfile. Those are versions in shell strings,
+# not in a manifest any ecosystem parses. Bumping them stays manual; naming them here is
+# the point, because an unattended gap is worse than a known one.
+#
+# No docker-compose entry: qa-compose.yml names a locally built image and the test
+# fixture names our own, so there is nothing foreign in either for anyone to update.
+---
+version: 2
+
+updates:
+  # Actions used by the workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+
+  # Base images of the delivered toolchain and of the QA fleet. Dependabot's docker
+  # fetcher matches any filename containing "dockerfile" or "containerfile", so both
+  # Containerfile and mini.Containerfile are covered. Both pin rolling tags, where
+  # Dependabot has little to offer — that is the price of pulling on update, not an
+  # oversight.
+  - package-ecosystem: docker
+    directory: /container
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+
+  # The gems, where the ~> constraints live. This is the work that was done by hand
+  # once already: rouge 4→5 and asciidoctor-kroki 0.10→1.0 were both majors held back by
+  # a pin, found by running `gem outdated` rather than by being told about them.
+  - package-ecosystem: bundler
+    directory: /container
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
