@@ -1,0 +1,440 @@
+= CON-001: Container Runtime Landscape
+:date: 2026-08-11
+:status: researched
+
+== Description
+
+ADCW runs a containerized toolchain on developer machines and CI runners it does
+not control. The set of container runtimes it meets there, and what each of them
+can and cannot do, is a given -- not a choice. This constraint records that
+landscape as surveyed on 2026-08-11, so that decisions resting on it (ADR-009 and
+successors) argue from a stated basis rather than from assumption.
+
+Statements here are either *structural* -- they follow from how the tools are
+built and age slowly -- or *dated*, describing a moving target. All of them were
+verified against primary sources; the difference is shelf life, not confidence.
+The dated ones are collected in <<assumptions>> with a recheck condition, so that
+a stale figure invalidates one table row rather than the argument around it.
+
+== The one universal layer
+
+The only thing every runtime agrees on is the
+https://github.com/opencontainers/image-spec[OCI Image Spec]. Every runtime below
+consumes and produces OCI images and talks to standard registries.
+
+Everything above that -- CLI surface, build engine, compose, local storage -- is
+runtime-specific. "OCI is OCI" holds for the *artifact*; it does not hold for the
+*tooling around it*.
+
+== The runtimes
+
+[cols="1,2,3"]
+|===
+| Runtime | Origin | Notes
+
+| `docker`
+| Docker Inc. / Moby
+| The reference CLI. Ubiquitous on CI runners.
+
+| `podman`
+| Red Hat (`podman-container-tools/podman`)
+| Daemonless, rootless by default. CLI is near-identical to `docker` apart from
+  the name -- with the exceptions noted under <<compose>>.
+
+| `nerdctl`
+| containerd project (CNCF)
+| Docker-compatible CLI directly on containerd. Brings no VM of its own.
+
+| `finch`
+| AWS
+| Bundles Lima + containerd + nerdctl + BuildKit into one installable. macOS and
+  Windows.
+
+| `container`
+| Apple
+| Swift, Apache-2.0, Apple silicon + macOS 26 only. The youngest of the five, and
+  the only one past 1.0 for less than a year -- <<assumptions>>
+|===
+
+*Apple's `container` is not preinstalled.* What macOS 26 ships is the
+infrastructure it stands on -- Virtualization.framework and the reworked vmnet
+networking. The tool itself is a separate signed `.pkg` or a Homebrew formula,
+plus `container system start` to bring up the service.
+
+== The VM layer
+
+Linux containers on macOS and Windows need a Linux kernel, so every runtime there
+is paired with a virtual machine. Who supplies that VM differs, and this is where
+the runtimes diverge most:
+
+[cols="1,2,2"]
+|===
+| Runtime | VM supplied by | Providers
+
+| `docker`
+| Docker Desktop, or an external VM manager (Colima, Rancher Desktop, OrbStack)
+| Desktop uses its own LinuxKit VM; the alternatives are Lima-based apart from
+  OrbStack
+
+| `podman`
+| `podman machine` (built in)
+| macOS: `libkrun`, `applehv`. Linux: `qemu`. Windows: `wsl`, `hyperv`. Which of
+  them is the default is a feature state -- <<assumptions>>
+
+| `nerdctl`
+| nothing -- requires Lima, Colima or Rancher Desktop
+| inherits whatever the VM manager offers
+
+| `finch`
+| Lima (bundled)
+| `vz` on Apple silicon, QEMU otherwise
+
+| `container`
+| Virtualization.framework, *one micro-VM per container*
+| plus `container machine` (alias `m`) for persistent VMs booted from
+  an OCI image, with nested virtualization on M3+ / macOS 15+
+|===
+
+Lima and Colima are *not* container CLIs and must not be treated as runtimes.
+They supply the machine; the CLI inside is `docker` or `nerdctl`:
+
+* Lima -- `limactl start|list|stop|delete|shell`, templates such as
+  `template:docker` and `template:k8s`; `lima nerdctl ...` is shorthand for a
+  shell into the default instance. VM types `qemu` and `vz`.
+* Colima -- `colima start|stop|status|list|delete|ssh|nerdctl`, runtimes
+  `docker`, `containerd` and `incus`, VM types `vz`, `qemu` and `krunkit`,
+  `--kubernetes` for an in-VM k3s. Sets the `docker context` on startup.
+* Rancher Desktop -- the same shape with a GUI and k3s as its foundation rather
+  than an option; `rdctl` manages the VM, and the container CLI it exposes is
+  `docker` (moby/dockerd) or `nerdctl` depending on the configured engine.
+  Apache-2.0, macOS, Windows and Linux.
+
+None of the three has a `run` verb of its own. Neither has containerd: `ctr` is a
+debugging interface with different mount semantics and no `--rm`, not a drop-in
+CLI. The CLI for containerd is `nerdctl`.
+
+Apple's per-container VM model is the structural outlier: Docker Desktop runs all
+containers inside one shared Linux VM, `container` gives each container its own.
+Stronger isolation, different resource profile.
+
+== Build
+
+Two build engines exist, and the split does not follow the runtime split. buildah is
+the outlier, not BuildKit: it is Red Hat's answer to the question BuildKit answers
+everywhere else, and Docker has never supported it. Which runtime runs which engine
+is a feature state -- <<build-engines>>.
+
+Neither engine is a CNCF project: BuildKit lives under Moby, buildah under the
+Podman umbrella, and the OCI specs under the Linux Foundation. CNCF-graduated in
+this picture is containerd, and nerdctl through it.
+
+A wrapper that has to reach all five can only use what all five have. The portable
+subset is the bare verb `build` with `--build-arg`, `-f/--file`, `-t/--tag`,
+`--target` and a *trailing* context path. Trailing rather than merely positional:
+last is the only position all five demonstrably accept.
+
+=== `buildx` is not portable, and not uniformly absent either
+
+`buildx` is Docker's own spelling. It is not a richer form of `build` even there --
+`docker build --help` prints `Usage: docker buildx build`, so the bare verb reaches
+the same BuildKit by the same path.
+
+Elsewhere it ranges from a hidden alias to entirely absent, which is what makes it
+unusable for a wrapper: emitting it fails outright on some runtimes and survives on
+others only through a shim. The bare verb costs nothing anywhere. Who answers it how
+is a feature state -- <<buildx-state>>.
+
+[[compose]]
+== Compose
+
+Compose is not one thing across the five. Some carry it as a subcommand, one delegates
+to whatever external provider is installed, and one has it only through third parties.
+Which is which is a feature state -- <<compose-state>>.
+
+That range is why a wrapper has to *ask* rather than assume, and why the answer cannot
+be derived from the runtime's name.
+
+Compose follows the runtime; it does not pick its own. `docker compose` against a
+Podman setup is not another spelling of the same thing but a different engine
+holding different containers.
+
+With one qualification: **`docker` is a client, not an engine identity.** Which
+engine it reaches is decided by the active `docker context`, which is global
+state outside any wrapper's view -- the same invocation can land on Docker
+Desktop, on Colima, or on Apple's `container` through the bridge described in
+<<apple-compose>>. Detecting `docker` therefore identifies a *CLI*, never a
+store. See <<stores>> for why that matters.
+
+Podman's own idiom for multi-container workloads is `podman kube play` with
+Kubernetes YAML. Apple has added `container k8s`. Both are heavier than
+what a document toolchain with a rendering sidecar needs, so neither substitutes
+for Compose here.
+
+[[apple-compose]]
+=== Compose on Apple's `container`
+
+Apple has *decided against* Docker CLI compatibility rather than merely not
+reached it yet. An Apple contributor states in
+https://github.com/apple/container/pull/1769#issuecomment-4781645360[apple/container#1769]
+that it "is not an objective for this project" -- citing the UX goals of the
+initial release, the tool name itself (`container container run` would be
+bizarre), and the support burden. The stated preference is instead to "use the
+Docker CLI itself with container" through an API bridge that stays *distinct*
+from the tool, because SDK-level consumers such as Testcontainers need the API
+surface anyway, not just the CLI.
+
+That guidance produced a clear division of labour, and third parties fill the gap
+in three *shapes*. The shapes are what a wrapper has to cope with; which project
+currently occupies each of them is a feature state -- <<apple-compose-state>>.
+
+API bridge:: A daemon speaking the Docker Engine API over Apple's containerization
+libraries. Registers a Docker context; the invocation is then plain
+`docker compose`. This is Apple's own stated direction, and the only shape that
+reuses the real Compose implementation rather than reimplementing it.
+`container` plugin:: A binary that `container help` lists under `PLUGINS`, invoked
+as `container compose up`.
+Standalone binary:: Its own executable, invoked by its own name -- exactly parallel
+to `docker-compose` and `podman-compose`.
+
+All three keep the image in Apple's own content store, which is what makes them
+relevant here rather than merely interesting: on macOS 26 they remove the
+cross-engine split described under <<stores>>.
+
+For a capability probe the three shapes behave differently, and this is what
+decides how detection has to be written:
+
+* the bridge is *invisible as such* -- it presents as `docker` with a context. A
+  probe finds `docker compose` and is right to use it; that the store behind it is
+  Apple's is not something the probe can or needs to observe.
+* the plugin answers `container compose version` and is therefore picked up by a
+  generic `<runtime> compose` probe without any runtime-specific knowledge.
+* the standalone binary needs a named lookup, and that name is the one thing a
+  probe cannot derive -- it has to be known.
+
+[[stores]]
+== Image stores and transport
+
+Each engine keeps its **own local content store**. `container image ls` and
+`docker images` show different inventories on the same machine although both hold
+OCI images. Building with one engine and running with another silently fails to
+find the image.
+
+Worse, the store a given CLI reaches is not always knowable from the CLI's name.
+A `docker` invocation follows the active context, so which store it addresses can
+change between two calls without anything in the wrapper's environment changing
+with it. Detection can establish that a compose implementation exists; it cannot
+establish that build and compose share a store.
+
+The artifact is portable; its local location is not. Engine-independence is
+therefore achieved by *transport*, not by a common CLI:
+
+* a registry -- `push` / `pull`, present on all five
+* a tarball -- `image save` / `image load`, present on all five
+
+== Licensing
+
+Docker Desktop is free below a company-size threshold and requires a paid
+subscription above it. Where that threshold sits is a licence term, and licence
+terms are revised -- <<desktop-licence>>.
+
+This applies to *Docker Desktop* only. The `docker` CLI and the Compose plugin
+are open source and unaffected -- which is precisely why Colima, Rancher Desktop
+and the other VM managers are viable: they replace the licensed part and keep the
+familiar CLI.
+
+[[consequences]]
+== Consequences for ADCW
+
+. ADCW must not assume a specific engine. Runtime detection is a requirement, not
+  a convenience.
+. The command surface ADCW emits must stay within the intersection of all
+  supported runtimes. `buildx` is outside it.
+. Compose support is *not* universal. It has to be probed as a capability rather
+  than assumed from the presence of a runtime, and the probe must drive the
+  selection -- picking a runtime first and asking afterwards lands on
+  `container`, which carries no compose of its own.
+. The probe must cover the Apple routes from <<apple-compose>>, because they are
+  the ones that keep build and compose in the *same* store on macOS 26. A generic
+  `<runtime> compose` probe already catches the plugin; the standalone
+  `container-compose` needs a named lookup alongside `docker-compose` and
+  `podman-compose`; `socktainer` needs nothing, as it presents as `docker`.
+  Availability is decided per machine at runtime, never assumed -- none of the
+  three is a dependency ADCW may require.
+. Naming a runtime explicitly is a statement about which engine holds the
+  containers. A shortfall must be reported, not silently answered with a
+  different engine.
+. Because local stores are not shared, any image ADCW builds and later runs must
+  either stay within one engine or travel through a registry.
+
+[[assumptions]]
+== Dated observations
+
+Everything in this document was verified against primary sources on 2026-08-11 --
+none of it is assumed. What differs between the statements is not their
+reliability today but their *shelf life*. The structural statements
+(<<stores>>, the build engine split, Apple's stated position on Docker CLI
+compatibility) follow from how the tools are designed and age slowly. The ones
+below are snapshots of a moving target and carry a recheck condition instead.
+
+Volatility is a rough half-life, not a schedule: *high* means assume it is stale
+at the next revision of this document, *low* means a change would be a notable
+event in its own right.
+
+[cols="3,1,3"]
+|===
+| Observation (2026-08-11) | Volatility | Recheck when / changes if
+
+| Every version number and count in this document -- `container` reached 1.0.0 in
+  June 2026 and stands at 1.2.2, the `stephenlclarke` fork stack is 849 commits
+  ahead of Apple upstream, and `apple/container` has shipped roughly monthly since
+  0.1.0.
+| high
+| Any revision of this document. Treat the figures as illustrating an order of
+  magnitude, never as a threshold anything depends on.
+
+| `podman machine` defaults to `libkrun` on macOS and to `wsl` on Windows.
+| medium
+| The macOS default has moved before; verify rather than recall it.
+
+| `podman compose` requires an external provider and prefers `docker-compose`
+  over `podman-compose` when both are present.
+| low
+| Podman gains a built-in implementation.
+
+| Apple's `container` requires macOS 26 on Apple silicon and installs separately
+  from the OS.
+| low
+| Apple bundles the tool or widens OS support.
+
+| The portable build surface is the bare verb `build` with `--build-arg`,
+  `-f/--file`, `-t/--tag` and `--target`.
+| low
+| A supported runtime drops or renames one of them.
+|===
+
+Apple's decision against Docker CLI compatibility is deliberately *not* listed
+here. It is a design decision with stated reasons rather than a snapshot, and it
+belongs to <<apple-compose>>; recording it as something that might expire would
+misrepresent it. The same holds for the judgement that none of the three routes
+is a dependency ADCW may require -- that is a consequence we draw, not an
+observation about the world, and it is stated once under
+<<consequences>>.
+
+The sections below are feature states too detailed for a row of the table above. They
+carry their own volatility for the same reason it appears there. Definition lists
+rather than tables throughout: the entries differ too much in length for columns to
+stay readable, and one form for all of them beats a judgement call per section.
+
+[[build-engines]]
+=== Which runtime runs which build engine
+
+Volatility *low* -- a runtime changing its build engine would be a rewrite, not a
+release. Recheck when a runtime adopts a second engine, or when `container` stops
+delegating to BuildKit.
+
+`docker`:: BuildKit. `docker build`, `docker buildx build`.
+`nerdctl`:: BuildKit, needing an external `buildkitd`. `nerdctl build`, `nerdctl builder`.
+`finch`:: BuildKit, bundled. `finch build`.
+`container`:: BuildKit. `container build`, `container builder start|stop|status`.
+`podman`:: buildah, vendored as a library. `podman build`.
+
+`container build` runs "in isolation using BuildKit" and `container builder` manages
+nothing but a BuildKit builder container -- Apple included, four of the five run the
+same engine.
+
+[[compose-state]]
+=== Where Compose comes from, per runtime
+
+Volatility *medium* -- a subcommand appearing or a provider default changing is an
+ordinary release. Recheck when a runtime announces Compose support, and whenever
+podman's provider preference is relied on.
+
+`docker`:: Yes. `docker compose` (CLI plugin, Go); standalone `docker-compose` as
+fallback.
+`nerdctl`:: Yes, built in, no extra binary.
+`finch`:: Yes, built in -- nerdctl underneath.
+`podman`:: Indirect. `podman compose` is a documented *thin wrapper* around an external
+provider: it prefers `docker-compose` over `podman-compose` when both are installed,
+warns that it is executing an external command, and is steered by
+`PODMAN_COMPOSE_PROVIDER` or `compose_providers` in `containers.conf`.
+`container`:: Not natively. Three third-party routes, all of them probeable --
+<<apple-compose-state>>.
+
+[[apple-compose-state]]
+=== Which project occupies which Apple-compose shape
+
+Volatility *high* -- these are young projects, and the shapes outlive the occupants.
+Recheck before relying on any of them for a toolchain; the specific failure modes
+below matter more than any coverage percentage.
+
+https://github.com/socktainer/socktainer[`socktainer`] -- the API bridge:: Apache-2.0,
+Docker Engine API v1.51, and Apple's own preferred direction; it also drives the
+Podman Desktop Apple-container extension. Seamless in theory and young in practice:
+endpoint coverage is broad -- `/build`, volumes, networks and exec are implemented,
+network `connect`/`disconnect` blocked on a missing Apple capability -- but
+`socktainer#329` is open, the DNS forwarder malforming EDNS0 responses so that
+Go-based containers fail to resolve peer service names while musl images tolerate it.
+Interactive exec is unsupported, the project carries a "heavy development" warning,
+and its stated requirement of `container` 0.6.0 is itself already stale. If it
+matures it stops being one option among three and becomes the recommended macOS 26
+setup.
+https://github.com/stephenlclarke/container-compose[`stephenlclarke/container-compose`] -- the plugin:: Apache-2.0, aiming at full observable Compose v2 parity with a published
+parity ledger. It is *not* a plugin on top of a stock Apple install: the supported
+install pulls a matched stack of the author's forks of `container`,
+`containerization` and `container-builder-shim`. Changes if the required primitives
+land upstream and the plugin installs against stock `container` -- which the author
+states as the goal.
+https://github.com/Mcrich23/Container-Compose[`Mcrich23/Container-Compose`] -- the standalone binary:: MIT, `brew install container-compose`, works against stock
+`container`. Self-described as limited -- Compose parsing, service dependencies,
+volume and network mapping, `.env` support -- with no published parity ledger to
+check a particular construct against.
+
+[[buildx-state]]
+=== Who answers `buildx build`, and how
+
+Volatility *medium* -- compatibility shims are added and dropped between minor
+releases. Recheck when a wrapper is about to emit anything other than the bare verb,
+and whenever finch's `docker_compat` surface changes.
+
+`docker`:: The native form. `docker build --help` prints `Usage: docker buildx build`.
+`podman`:: A *hidden* compatibility alias forwarding to `podman build`.
+`finch`:: Only under `docker_compat`, where it warns and rewrites the verb to `build`.
+`nerdctl`:: Absent -- `nerdctl build` and `nerdctl builder`, no `buildx` in the command
+tree.
+`container`:: Absent -- zero occurrences in the repository.
+
+The trailing context path was checked the same way: docker, nerdctl and `container`
+accept flags after it, podman's documentation places it last throughout.
+
+[[desktop-licence]]
+=== Where the Docker Desktop threshold sits
+
+Volatility *medium* -- Docker has moved these numbers before, and a change is an
+announcement rather than a release. Recheck before anyone cites them in a decision;
+the figures are the vendor's to change, and this document is not the authority on
+them.
+
+Paid subscription required:: organisations with 250 or more employees *or* more than
+10 million USD in annual revenue.
+Free:: personal use, education, non-commercial open source, and businesses below both
+thresholds.
+
+== Sources
+
+* https://github.com/apple/container[apple/container] --
+  https://github.com/apple/container/blob/main/docs/command-reference.md[command reference],
+  https://github.com/apple/container/blob/main/README.md[README],
+  https://github.com/apple/container/pull/1769#issuecomment-4781645360[#1769 on Docker CLI compatibility]
+* https://github.com/socktainer/socktainer[socktainer] ·
+  https://github.com/stephenlclarke/container-compose[stephenlclarke/container-compose] ·
+  https://github.com/Mcrich23/Container-Compose[Mcrich23/Container-Compose]
+* https://github.com/containers/podman[podman] -- `podman-machine.1`,
+  `podman-compose.1`
+* https://github.com/containerd/nerdctl[nerdctl] ·
+  https://github.com/runfinch/finch[finch] ·
+  https://github.com/lima-vm/lima[lima] ·
+  https://github.com/abiosoft/colima[colima]
+* https://github.com/moby/buildkit[BuildKit] ·
+  https://github.com/containers/buildah[buildah] ·
+  https://github.com/opencontainers/image-spec[OCI Image Spec]
+* https://docs.docker.com/subscription/desktop-license/[Docker Desktop license terms]

@@ -18,8 +18,8 @@ fi
 # shellcheck source=../lib/adcw-common.bash
 source "${_ADCW_LIB_DIR}/adcw-common.bash"
 
-# The Containerfile carries two stages. --target is not optional here: without it
-# buildx builds the *last* one, which is the variant carrying a browser — 1.68 GB
+# The Containerfile carries two stages. --target is not optional here: without it the
+# build produces the *last* one, which is the variant carrying a browser — 1.68 GB
 # nobody asked for.
 BUILD_TARGET="adoc"
 IMAGE_NAME="tpo42/adoc"
@@ -58,7 +58,12 @@ if [[ $# -gt 0 ]]; then
     exit 1
 fi
 
-_adcw_detect_runner
+# `run`, not a capability of its own. The image this produces lands in the local store of
+# whichever engine builds it, and `bin/adcw` has to find it there afterwards — so the two
+# must resolve the same runtime. Asking a build-specific question here could answer with
+# a different engine than the run resolves, and the image would not be where it is looked
+# for. See ADR-009.
+_adcw_detect_runner run
 _adcw_detect_tag
 
 CONTAINER_IMAGE="${IMAGE_NAME}:${CONTAINER_TAG}"
@@ -66,7 +71,14 @@ CONTAINER_IMAGE="${IMAGE_NAME}:${CONTAINER_TAG}"
 echo "Building ADCW Container: ${CONTAINER_IMAGE}"
 echo "   Using: ${_ADCW_CONTAINER_RUNNER_BIN}"
 
-${_ADCW_CONTAINER_RUNNER_BIN} buildx build \
+# The bare verb, not `buildx build`. `buildx` is Docker's own spelling: nerdctl and
+# Apple's `container` do not have it at all, podman carries it as a hidden alias onto
+# `podman build`, and finch only under docker_compat where it warns and rewrites the verb.
+# `build` with --build-arg, -f/--file, -t/--tag, --target and a *trailing* context path is
+# present on all five (CON-001, "Build"). On docker it is not a lesser form either:
+# `docker build --help` prints `Usage: docker buildx build`, so it reaches the same
+# BuildKit by the same path — which is why no runtime needs a spelling of its own here.
+"${_ADCW_CONTAINER_RUNNER_BIN}" build \
     --build-arg=USER_UID="$(id -u)" \
     --build-arg=USER_GID="$(id -g)" \
     --build-arg=USER_NAME="$(id -un)" \
@@ -83,4 +95,6 @@ echo "  ./bin/adcw shell                                           # Interactive
 echo "  ./bin/adcw flatten -i mydoc.adoc -o mydoc-flattened.adoc   # Flatten includes"
 echo "  ./bin/adcw validate -i mydoc.adoc                          # Validate syntax"
 echo ""
-echo "Container: ${CONTAINER_IMAGE}"
+# Naming the store, not just the image: it is the half of the answer that decides whether
+# `adcw` will find this build, and it is invisible from `adcw`'s side.
+echo "Container: ${CONTAINER_IMAGE} (local image store of ${_ADCW_CONTAINER_RUNNER_BIN##*/})"

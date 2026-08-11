@@ -195,6 +195,12 @@ _adcw_setup_compose() {
         fi
     fi
 
+    # Compose is what this mode needs, so compose is what the runtime is selected for.
+    # Detected here, in the parent shell: the previous shape called the detection from
+    # inside the command substitution below, where the resolved runtime died with the
+    # subshell and every later reader saw an unset variable. See ADR-009.
+    _adcw_detect_runner compose || return 1
+
     # Multi-word commands ("docker compose") need an array, not a string
     local compose_cmd
     compose_cmd="$(_adcw_find_compose_cmd)" || return 1
@@ -214,13 +220,18 @@ _adcw_setup_devcontainer() {
 }
 
 _adcw_setup_spec_container() {
-    _adcw_detect_runner || return 1
+    _adcw_detect_runner run || return 1
     _adcw_detect_tag || return 1
 
     : "${CONTAINER_IMAGE:=tpo42/adoc:${CONTAINER_TAG}}"
 
-    if ! ${_ADCW_CONTAINER_RUNNER_BIN} image inspect "${CONTAINER_IMAGE}" >/dev/null 2>&1; then
-        echo "Error: Container ${CONTAINER_IMAGE} not found!" >&2
+    # Naming the engine, not only the image. Image stores are not shared between runtimes,
+    # so "not found" has a second cause besides "never built": built by a different engine
+    # and therefore invisible here. Nothing in the inspect result distinguishes the two,
+    # and a reader who just watched adcbw succeed needs the distinction to make sense of
+    # this at all. See ADR-009.
+    if ! "${_ADCW_CONTAINER_RUNNER_BIN}" image inspect "${CONTAINER_IMAGE}" >/dev/null 2>&1; then
+        echo "Error: Container ${CONTAINER_IMAGE} not found in the local image store of ${_ADCW_CONTAINER_RUNNER_BIN##*/}!" >&2
         if [[ -n "${ADC_PROJECT_HOME:-}" ]]; then
             echo "" >&2
             echo "Build it first:" >&2
@@ -358,41 +369,19 @@ _adcw_find_adoc_service() {
     ' "${compose_path}"
 }
 
-# Compose follows the runtime, it does not pick its own. `docker compose` against a
-# podman setup is not a different spelling of the same thing — it is a different engine
-# with different containers, and the previous fixed order handed exactly that to anyone
-# whose runtime was not docker.
+# Print the compose command belonging to the runtime in use.
+#
+# Selection has already happened by the time this runs: `_adcw_detect_runner compose`
+# only ever hands back a runtime that carries compose, and reports the failure itself
+# when none does — so there is no second error message here to keep in step with the
+# first. What is left is the spelling, `docker compose` against `podman-compose`, and it
+# is derived rather than remembered: a probe result parked in a global would have to
+# stay consistent with _ADCW_CONTAINER_RUNNER_BIN, and one process costs less than that
+# obligation. Detecting again is idempotent — an already resolved runtime is only
+# re-asked whether it still satisfies the requirement.
 _adcw_find_compose_cmd() {
-    _adcw_detect_runner || return 1
-
-    local runner
-    runner="$(basename "${_ADCW_CONTAINER_RUNNER_BIN}")"
-
-    # Every modern runtime carries compose as a subcommand.
-    if "${_ADCW_CONTAINER_RUNNER_BIN}" compose version >/dev/null 2>&1; then
-        echo "${_ADCW_CONTAINER_RUNNER_BIN} compose"
-        return 0
-    fi
-
-    # The standalone implementations, each belonging to exactly one runtime.
-    case "${runner}" in
-    docker)
-        if command -v docker-compose >/dev/null 2>&1; then
-            echo "docker-compose"
-            return 0
-        fi
-        ;;
-    podman)
-        if command -v podman-compose >/dev/null 2>&1; then
-            echo "podman-compose"
-            return 0
-        fi
-        ;;
-    esac
-
-    echo "Error: ${runner} has no compose support installed" >&2
-    echo "Set _ADCW_CONTAINER_RUNNER_BIN to pick a different runtime." >&2
-    return 1
+    _adcw_detect_runner compose || return 1
+    _adcw_runner_compose_cmd "${_ADCW_CONTAINER_RUNNER_BIN}"
 }
 
 _adcw_show_usage() {

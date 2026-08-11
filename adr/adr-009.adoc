@@ -1,0 +1,332 @@
+= ADR-009: The Requirement Selects the Container Runtime, the Image Store Bounds the Choice
+:date: 2026-08-11
+:status: accepted
+:see-also: ADR-007 (unified script architecture), CON-001 (container runtime landscape), UC-001/UC-005 (the local build path)
+
+== The question
+
+Several container runtimes may be installed on the same host, and they are not
+interchangeable: they differ in what they can do, and each keeps its own local
+image store.
+
+*When ADCW needs a runtime, which one does it pick -- and may two invocations in
+the same workflow legitimately pick different ones?*
+
+Everything below follows from answering the second half, which is the half that
+is easy to miss.
+
+== Premises
+
+This decision argues from documents rather than restating them:
+
+* **UC-001** and **UC-005** -- the only paths in which ADCW builds an image and
+  later runs it, two processes with nothing between them but the environment.
+* **UC-002** and **UC-003** -- the mainstream, roughly 95% of use: a published
+  image pulled by a devcontainer or a compose file, never built locally.
+* **UC-007** -- the caller that pins a runtime explicitly to verify per runtime,
+  and for which a silent substitution would turn a matrix cell into a lie.
+* **CON-001**, "Image stores and transport" and "Build" -- what the runtimes are
+  and what they can do.
+* **ADR-007** -- ADCW offers options and never provides infrastructure.
+
+== What each operation does to the image store
+
+The modes differ in exactly one property, and that property decides the whole
+design:
+
+[cols="1,1,1,2"]
+|===
+| Operation | ADCW's local store | May the search cross runtimes | A wrong crossing surfaces as
+
+| build (`bin/adcbw`, UC-001/UC-005)
+| writes
+| no
+| an image that cannot be found moments after a successful build -- or worse, a
+  silent hit on a stale image left in the other store by an earlier run
+
+| run (`bin/adcw`, dedicated container, UC-001/UC-005)
+| reads
+| no
+| the same, from the other side
+
+| compose (`bin/adcw`, UC-002/UC-003)
+| untouched
+| *yes*
+| the readiness check reports the service is not up, and says how to start it
+
+| devcontainer (`bin/adcw`, UC-002)
+| untouched
+| n/a -- no runtime is selected
+| the devcontainer CLI reports it; ADCW never chose an engine here
+|===
+
+Build and run are one transaction against one store. Compose touches ADCW's store
+not at all, so crossing there costs nothing and fails legibly when it is wrong.
+That asymmetry is the decision; the rest is how it is implemented.
+
+== Context
+
+`_adcw_detect_runner` resolved a runtime from a fixed chain of fallbacks:
+
+[source,bash]
+----
+_ADCW_CONTAINER_RUNNER_BIN="$(command -v container)" ||
+    _ADCW_CONTAINER_RUNNER_BIN="$(command -v nerdctl)" ||
+    ... || _adcw_exit_error "${_ADCW_MISSING_RUNNER}"
+----
+
+The chain answers exactly one question: which runtime is installed first, in an
+order preferring the lightweight and daemonless and leaving docker last. That
+order is still right. What was missing is that the answer was handed to every
+caller regardless of what the caller needed it for.
+
+On a macOS 26 machine with `container` and docker both installed, compose mode
+selected `container` -- first in the list precisely because it is the lightest --
+then demanded compose from it and failed with "no compose support installed"
+while docker sat two entries further down, installed and perfectly able. The
+failure is not that the wrong runtime was preferred. It is that selection
+happened before the requirement was known, so the requirement could only reject
+the result, never reach a different one.
+
+A second defect had the same root. `_adcw_find_compose_cmd` called
+`_adcw_detect_runner` from inside a command substitution, so the runtime it
+resolved was assigned in a subshell and died with it. The memoisation the
+function was written to provide never reached the parent shell.
+
+=== The two constraints that bound the answer
+
+CON-001, "Image stores and transport": **every engine keeps its own local content
+store, and the stores are not shared.** `container image ls` and `docker images`
+list different inventories on the same machine although both hold OCI images. The
+artifact is portable; its local location is not. Worse, the store behind a CLI is
+not always knowable from the CLI -- a `docker` invocation follows the active
+`docker context`, which may be backed by Docker Desktop, by Colima, or by Apple's
+`container` through socktainer, and nothing in the CLI surface says which.
+
+ADR-007 draws the second bound, and it is the older decision: ADCW *offers*
+options and never *provides* infrastructure. It may not assume that compose, a
+devcontainer, or a cluster exists, and it does not start, manage or reconcile
+any of them. That is why there is no manager here of any kind -- and image
+management across engines would be exactly that.
+
+Together they turn the question from "which runtime can do what I need" into
+"which runtime can do what I need *without moving me to a different store than
+the one my image is in*" -- and settle that ADCW answers it by staying put rather
+than by transporting anything.
+
+== Decision
+
+**The capability a caller needs is a parameter of the search -- and the search
+may cross runtimes only where ADCW's own local image store is not at stake.**
+
+=== The capability drives the search
+
+The list becomes data -- `_ADCW_CONTAINER_RUNNERS=(container nerdctl finch podman
+docker)` -- because a list can be walked while asking each entry a question,
+where a chain of `||` can only take the first thing that exists. The order is
+unchanged; only its status changes, from control flow to a preference a
+requirement may legitimately override.
+
+`_adcw_detect_runner [run|compose]` walks that list and takes the first entry
+satisfying the requested capability. `run` is satisfied by being installed:
+every runtime in the list runs containers, and that is the whole test. `compose`
+is satisfied only by a runtime carrying a compose implementation of its own.
+
+=== Build is a capability -- it is just not a selection criterion here
+
+Building genuinely differs between runtimes, and the differences are real:
+nerdctl needs an external `buildkitd`, finch the same inside its VM, Apple's
+`container` starts its own builder and needs nothing. Pretending otherwise would
+be false.
+
+What ADCW lacks is not a build capability but an **image-management capability**
+-- a way to move an image from the store it was built in to the store it will run
+in. That absence is what couples build to run. With transport, `bin/adcbw` and
+`bin/adcw` could resolve independently and the build capability would be safe to
+select on. Without it, a build-specific criterion that answered differently from
+`run` would produce exactly the failure it was meant to avoid, later and more
+confusingly.
+
+ADR-007 settles which way that goes: moving images between stores is providing
+infrastructure, not offering an option, so the coupling stays. `bin/adcbw` therefore asks for `run` -- not because building and
+running are the same operation, but because the *store* is the same, and the
+store is what the selection has to hold constant.
+
+The guard is structural rather than documentary.
+`_adcw_runner_has_capability` answers in three values -- can, cannot, capability
+unknown -- and an unknown capability aborts the search instead of being tried
+against every runtime in turn. A `build` capability added without first
+establishing transport fails at the first call, once, naming itself.
+
+The cost is accepted deliberately: a build that fails because a builder daemon is
+down is reported by the runtime in the runtime's own words, and not routed around
+by choosing a different engine. Curating that message is a readiness problem in
+the shape ADR-007 already established, and it belongs there.
+
+=== Stability is reproducibility, not memory
+
+Nothing carries the resolved runtime from `adcbw` to `adcw`, and nothing needs
+to: the same list, walked with the same criterion against the same `PATH`, yields
+the same runtime in both processes. That is strictly cheaper than the
+alternatives -- a state file that can go stale against the machine, or a label
+baked into the image that still would not tell `adcw` where to look before it has
+found the image.
+
+The property has a precondition worth naming rather than assuming: the selection
+is reproducible only while its inputs are. Installing a runtime that sorts
+earlier in the list between a build and a run moves the answer, and the build
+stays behind in the old engine's store.
+
+=== `_ADCW_CONTAINER_RUNNER_BIN` names the engine, not the CLI
+
+When it is set, the capability stops being a selection criterion and becomes a
+requirement of that one runtime: satisfied, it is used; not satisfied, the
+shortfall is reported and the variable is named as the thing to change.
+
+The tempting alternative -- falling back to a runtime that can do the job -- is
+wrong, and the store constraint sharpens why. Naming a runtime is not a
+preference about tooling but a statement about *which engine holds the containers
+and the images*. Quietly answering with a different engine does not rescue the
+call; it points it at a different inventory, where the service the user started is
+not running and the image they built does not exist. That is also what UC-3
+relies on.
+
+Existence is checked on this path and only on this path. Walking the list, every
+candidate came out of `command -v` and is installed by construction -- which is
+why `run` can treat being installed as the whole test. A pinned runtime skips
+that walk, so a typo would otherwise reach the first real invocation and surface
+as the runtime's own "No such file or directory", after `adcbw` had already
+announced which store it was going to fill.
+
+Read that way, the variable is also the remedy for the precondition above:
+exported once, it pins both processes to one engine explicitly. That is the
+supported way to be sure, and `bin/adcbw` honours it like every other caller. The
+second remedy is the one CON-001 names -- `CONTAINER_IMAGE` set to a registry
+reference takes the local build out of the picture, and each engine pulls into
+its own store.
+
+=== Compose belongs to the runtime in use
+
+`docker compose` against a podman setup is not a different spelling of the same
+thing. It is a different engine with different containers, and a fixed compose
+lookup handed exactly that to anyone whose runtime was not docker.
+
+Each runtime is therefore asked for *its own* compose, in two steps.
+`<runtime> compose version` comes first, because every modern runtime carries
+compose as a subcommand -- nerdctl and finch included, so neither needs a special
+case. Only when that fails does the standalone implementation belonging to that
+runtime come into play: `docker-compose` for docker, `podman-compose` for podman,
+`container-compose` for Apple's `container`, never crossed over. A runtime with
+neither cannot compose, and the search moves on.
+
+This is what makes the podman case come out right. podman precedes docker in the
+list and, with `podman-compose` installed, satisfies the requirement -- so podman
+wins, even where `docker compose` would have answered faster.
+
+The Apple entry is there for the store reason rather than for completeness. Of
+the three routes CON-001 lists, two need nothing from this lookup -- the plugin
+answers the generic probe, and socktainer presents as `docker`. Only the
+standalone binary needs naming, and it is worth naming because all three keep the
+image in Apple's own store, which is where a local `container build` put it. None
+of the three may be *required*, so all of it is probed per machine.
+
+That same socktainer case marks the limit of what any probe can know, and it is
+why the table above says *no* twice rather than *it depends*: a `docker` ADCW
+finds may be backed by Apple's store, and nothing in the CLI surface says so. The
+rule is therefore conservative by construction, keeping build and run in one
+engine whether or not two engines happen to share a store behind ADCW's back.
+
+=== The build verb is `build`, not `buildx build`
+
+`bin/adcbw` invoked `${_ADCW_CONTAINER_RUNNER_BIN} buildx build` for every
+runtime. Per CON-001, "`buildx` is not portable": it fails outright on nerdctl
+and Apple's `container` and survives on podman and finch only through a shim.
+
+It follows that the verb is the bare `build`, written once at the single call
+site that builds. No runtime gets a spelling of its own, and no seam is provided
+to hold one -- CON-001 also establishes that on docker the bare verb is not a
+lesser form, so there is nothing a branch could improve. Should a buildx-only
+feature ever be needed -- several `--platform` values in one build, `--push`,
+cache exporters -- that is when a seam earns its place, and not before.
+
+`--target` is the flag that must not be lost in the correction. The Containerfile
+carries two stages and the default is the last one, so a build without it
+silently produces the browser-carrying variant instead of the delivered image.
+
+=== What belongs in the list, and what does not
+
+The list holds container *CLIs*: things that answer `run`, `image inspect`,
+`build` and, where they have it, `compose`.
+
+CON-001 settles who qualifies: Colima, Rancher Desktop and Lima are VM managers
+whose own CLI is lifecycle, with no `run` verb, and containerd's CLI is `nerdctl`
+rather than `ctr`. None of them is a candidate.
+
+What follows is the part worth stating here: adding one anyway would *break* the
+users it appears to serve. Whoever runs Colima reaches it through `docker`, whose
+context Colima sets, or through `nerdctl` -- both already in the list, so those
+users are served today. A `colima` entry would be found by the probe, and the
+first real invocation would fail while a working `docker` stood next to it. That
+is structurally the defect this ADR removes, only in the other direction.
+
+=== Arrived at twice
+
+dtcw reached the same design independently on its
+`feature/shell-function-wrapper` branch, down to the two-step compose probe and
+the rule that an explicitly named runtime is authoritative rather than silently
+replaced. Two wrappers with different histories and no shared code converging is
+the strongest evidence available here that the answer follows from the problem
+rather than from taste.
+
+== Consequences
+
+=== Positive
+
+* Compose mode works wherever *some* runtime can compose, instead of only where
+  the first installed one can. UC-2 is fixed without reordering the preference
+  list, and so without penalising every non-compose invocation.
+* The build runs on nerdctl and Apple's `container`, which have no `buildx`, and
+  stops depending on podman's alias and finch's `docker_compat` shim where it
+  happened to survive.
+* UC-1 holds by construction: build and run provably resolve the same engine,
+  enforced by the absence of a build-specific criterion rather than by a check
+  that could drift.
+* Where the pairing can still fail, both diagnostics name the store -- `adcbw`
+  which one it filled, `adcw` which one it searched. Neither was inferable
+  before. Offering an option instead of managing the situation only works when
+  the situation is legible, which makes this an obligation rather than a
+  courtesy.
+* A pinned runtime that is not installed is reported as such instead of reaching
+  the runtime invocation, so UC-3's failure mode is a curated message.
+* The runtime resolved on the compose path reaches the parent shell. The
+  memoisation exists rather than merely being intended.
+* The whole shape is testable without a container: stub binaries on a reduced
+  `PATH` simulate any combination of installed runtimes, and a recording stub
+  captures the argv `adcbw` emits.
+* Adding a capability is adding a branch to one `case`, subject to the store rule
+  -- which is why the obvious next one is not being added.
+
+=== Negative
+
+* A compose invocation probes each candidate until one satisfies the requirement,
+  so a machine whose first runtimes cannot compose pays one process per skipped
+  candidate. Bounded by the list length, paid once per invocation.
+* `_adcw_find_compose_cmd` derives the compose spelling rather than remembering
+  what the probe found, costing one further process. The alternative is a second
+  global to keep consistent with `_ADCW_CONTAINER_RUNNER_BIN`; the process is
+  cheaper than that obligation.
+* The build-and-run pairing rests on the selection being reproducible, which is a
+  property of the environment rather than something ADCW records. Installing a
+  runtime that sorts earlier between a build and a run moves the answer and
+  leaves the image behind. The failure is reported with the store named, and
+  exporting `_ADCW_CONTAINER_RUNNER_BIN` removes the exposure, but nothing
+  detects the situation -- deliberately, since detecting and repairing it is the
+  managing ADR-007 rules out.
+* A build blocked by a stopped builder daemon is reported in the runtime's own
+  words, because skipping to another engine is not available as an answer.
+  Curated readiness messages remain open work.
+* Two callers of `_adcw_detect_runner` in the same shell with different
+  capabilities would find the first result already pinned and be judged against
+  it. No such caller exists -- the modes are mutually exclusive -- but the
+  memoisation and the override share one variable, and a future caller would have
+  to respect that.

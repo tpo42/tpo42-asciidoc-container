@@ -1,0 +1,71 @@
+= UC-003: Document with diagrams the image cannot render alone
+:date: 2026-08-11
+:actor-kind: persona
+:actor: documentation author
+:level: user goal
+
+== Goal
+
+Use diagram types that need a rendering service -- BPMN 2.0, Excalidraw,
+Structurizr and the rest of what Kroki covers -- without giving up the local
+workflow of <<uc-002.adoc#,UC-002>>.
+
+== Main success scenario
+
+. The project declares a renderer alongside the documentation container.
+. The author brings the stack up and works as in UC-002; diagram blocks that need
+  the service resolve through it.
+. Validation renders those blocks rather than passing them as warnings, so a
+  broken diagram fails the gate.
+
+== Variations -- and none of them may be mandatory
+
+The renderer can be placed in at least three ways, and the choice belongs to the
+project, not to this toolchain:
+
+[cols="1,2,2"]
+|===
+| Placement | Reached via | Consequence for ADCW
+
+| A service in the project's compose file
+| `compose exec` into the documentation service, renderer on the compose network
+| the only placement in which ADCW drives compose
+
+| A Kroki instance in a local or shared Kubernetes cluster
+| an URL in the Asciidoctor configuration
+| outside ADCW entirely -- no second container, no runtime selection
+
+| The public `kroki.io`
+| an URL in the Asciidoctor configuration
+| the same, and the only option that needs no infrastructure at all
+|===
+
+== What this demands
+
+* **A local renderer must never be a requirement.** A CI agent that is itself a
+  container frequently cannot start a sibling service, so a toolchain that
+  insists on one excludes exactly the environments this repository is built for.
+  There has to be another way, always.
+* Where the renderer is a URL rather than a container, ADCW is not involved
+  beyond passing configuration through. That is a feature: the majority of this
+  use case needs nothing from runtime selection.
+* Where it is a compose service, the compose implementation ADCW drives must be
+  the one holding the running stack -- the crossing rule of ADR-009.
+
+== Related, and deliberately not the same problem
+
+Not every diagram need is a rendering service. Two neighbours mark the boundary:
+
+Mermaid::
+Settled as a variant image (ADR-008), because a browser can live in an image
+where a service cannot.
+
+https://github.com/docToolchain/Bausteinsicht[Bausteinsicht]::
+Architecture-as-code with draw.io as the visual frontend -- a JSONC model of
+elements, relationships and views, synchronised bidirectionally with the
+diagrams. It is a Go binary that runs *before* the document build and leaves
+files behind, not a renderer invoked during it. So it needs no service at all,
+which makes it the counter-example rather than an instance: the same
+architectural pictures, without the infrastructure question this use case is
+about. Where a project uses it, it fits the "one service per concern" shape of
+UC-002's compose file, or no container at all.
