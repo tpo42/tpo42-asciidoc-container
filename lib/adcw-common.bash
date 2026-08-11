@@ -61,49 +61,50 @@ _adcw_exit_error() {
 # entry a question, an `||` chain can only take the first thing that exists. See ADR-009.
 _ADCW_CONTAINER_RUNNERS=(container nerdctl finch podman docker)
 
-# Print the compose command belonging to exactly this runtime, or fail.
+# The standalone compose implementation belonging to each runtime, for the runtimes that
+# have one. Apple's `container` is in here for the store reason (CON-001): of its three
+# third-party routes only this one needs naming, since the plugin answers
+# `<runtime> compose version` and socktainer presents as `docker` with a context.
+_ADCW_STANDALONE_COMPOSE=(
+    "container:container-compose"
+    "docker:docker-compose"
+    "podman:podman-compose"
+)
+
+# Set _adcw_compose_cmd to the compose invocation belonging to exactly this runtime,
+# or fail leaving it empty.
 #
 # Compose follows the runtime, it does not pick its own. `docker compose` against a
 # podman setup is not a different spelling of the same thing — it is a different engine
 # holding different containers. Modern runtimes carry compose as a subcommand; the
 # standalone binaries each belong to one runtime and must not be crossed over.
 #
+# An array rather than a printed string. The caller needs argv, and a string has to be
+# split to get there — `read -a` splits on IFS, which knows nothing about quoting, so a
+# runtime under a path containing a space (a "Docker Desktop" directory is the realistic
+# case, and Windows makes it likely) became two argv words. Setting the array here means
+# the two words of `<runtime> compose` never become text in the first place.
+#
 # ${bin##*/} rather than basename: this runs inside the capability probe of every
 # candidate runtime, and a builtin expansion asks nothing of PATH.
+_adcw_compose_cmd=()
 _adcw_runner_compose_cmd() {
     local bin="$1"
+    _adcw_compose_cmd=()
 
     if "${bin}" compose version >/dev/null 2>&1; then
-        printf '%s compose' "${bin}"
+        _adcw_compose_cmd=("${bin}" compose)
         return 0
     fi
 
-    case "${bin##*/}" in
-    container)
-        # Apple's `container` carries no compose of its own. Of the three third-party
-        # routes (CON-001) two need nothing here: the plugin answers
-        # `container compose version` above, and socktainer presents as `docker` with a
-        # context. Only the standalone binary needs naming — exactly parallel to the two
-        # below, and the reason it is worth naming is that all three keep the image in
-        # Apple's store, which is where a local build put it.
-        if command -v container-compose >/dev/null 2>&1; then
-            printf 'container-compose'
+    local entry
+    for entry in "${_ADCW_STANDALONE_COMPOSE[@]}"; do
+        [[ "${bin##*/}" == "${entry%%:*}" ]] || continue
+        if command -v "${entry#*:}" >/dev/null 2>&1; then
+            _adcw_compose_cmd=("${entry#*:}")
             return 0
         fi
-        ;;
-    docker)
-        if command -v docker-compose >/dev/null 2>&1; then
-            printf 'docker-compose'
-            return 0
-        fi
-        ;;
-    podman)
-        if command -v podman-compose >/dev/null 2>&1; then
-            printf 'podman-compose'
-            return 0
-        fi
-        ;;
-    esac
+    done
 
     return 1
 }
