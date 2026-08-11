@@ -20,7 +20,13 @@ env:
   # build should land somewhere its author can actually use it.
   IMAGE_NAME: ${{ github.repository_owner }}/adoc
   MERMAID_IMAGE_NAME: ${{ github.repository_owner }}/adoc-with-mermaid
+  # The two test images, named so that the wrappers resolve them from their own
+  # variables: an empty ADOC_REGISTRY yields the bare local name, and ADOC_VERSION
+  # supplies the tag. Nothing has to pass an explicit ADOC_IMAGE.
   TEST_TAG: adoc:ci-${{ github.sha }}
+  TEST_TAG_MERMAID: adoc-with-mermaid:ci-${{ github.sha }}
+  ADOC_REGISTRY: ""
+  ADOC_VERSION: ci-${{ github.sha }}
 
 jobs:
   build:
@@ -55,6 +61,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Both variants, always. The Mermaid renderer exists only here, so a suite that
+      # skips this image never exercises it — and the case that broke silently was
+      # exactly a renderer nobody ran.
+      - name: Build the Mermaid variant for testing
+        uses: docker/build-push-action@v7
+        with:
+          context: container
+          file: container/Containerfile
+          target: adoc-with-mermaid
+          load: true
+          tags: ${{ env.TEST_TAG_MERMAID }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Test script syntax
         run: |
           bash -n bin/adcw
@@ -75,11 +95,21 @@ jobs:
       # wrapper would otherwise prefer podman, which has its own store and would not
       # find it.
       - name: Validate ADRs
-        env:
-          ADOC_IMAGE: ${{ env.TEST_TAG }}
         run: |
           _ADCW_CONTAINER_RUNNER_BIN="$(command -v docker)" \
             ./bin/adcw validate --strict -i 'adr/*.adoc'
+
+      # The suites that need an image, against the two just built. Mermaid is required
+      # rather than skippable here: this is the one place both variants exist, so a skip
+      # would mean the renderer is never exercised anywhere.
+      - name: Regression suites
+        env:
+          ADCW_TEST_REQUIRE_MERMAID: "1"
+        run: |
+          _ADCW_CONTAINER_RUNNER_BIN="$(command -v docker)"
+          export _ADCW_CONTAINER_RUNNER_BIN
+          test/validate-cases.bash
+          test/extract-diagrams-cases.bash
 
       - name: Resolve version from tag
         id: version

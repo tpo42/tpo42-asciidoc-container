@@ -110,6 +110,10 @@ jobs:
       - name: Container gates, once per runtime
         env:
           ADOC_VERSION: local
+          # The Mermaid renderer lives in the variant image alone, so a suite allowed to
+          # skip it never runs that renderer at all. Both images are built below for
+          # exactly that reason.
+          ADCW_TEST_REQUIRE_MERMAID: "1"
         run: |
           set -u
           rc=0
@@ -121,10 +125,16 @@ jobs:
             export _ADCW_CONTAINER_RUNNER_BIN="${bin}"
             # set -u is not set -e: a failing build would otherwise pass unnoticed and
             # the job go green on the gates that ran afterwards — against whatever image
-            # happened to be lying around. A failure skips this runtime's gates rather
-            # than running them on a lie.
+            # happened to be lying around. Each build is therefore checked, and a
+            # failure skips this runtime's gates rather than running them on a lie.
             if ! ./bin/adcbw; then
-              echo "::error ::${runtime}: building the image failed"
+              echo "::error ::${runtime}: building the base image failed"
+              rc=1
+              echo "::endgroup::"
+              continue
+            fi
+            if ! ./bin/adcbw --with-mermaid; then
+              echo "::error ::${runtime}: building the mermaid variant failed"
               rc=1
               echo "::endgroup::"
               continue

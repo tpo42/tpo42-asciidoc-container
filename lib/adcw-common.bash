@@ -227,7 +227,7 @@ _ADCW_RELEASE_VERSION=""
 
 # Where images are pulled from. Overridable so that a consumer can mirror the image into
 # their own registry, or publish a derived one beside it, without editing the wrapper.
-: "${ADOC_REGISTRY:=ghcr.io/tpo42}"
+: "${ADOC_REGISTRY=ghcr.io/tpo42}"
 
 # Resolve ADOC_VERSION: explicit env → release constant → git describe → "latest"
 #
