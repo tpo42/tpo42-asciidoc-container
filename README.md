@@ -114,15 +114,15 @@ Add `bin/` to your PATH, or install via Homebrew (when available). Optionally lo
 **Bash (~/.bashrc):**
 
 ```bash
-ADC_PROJECT_HOME=~/src/tpo42-asciidoc-container   # your checkout
-source "${ADC_PROJECT_HOME}/lib/completions/adcw.bash"
+ADOC_PROJECT_HOME=~/src/tpo42-asciidoc-container   # your checkout
+source "${ADOC_PROJECT_HOME}/lib/completions/adcw.bash"
 ```
 
 **Zsh (~/.zshrc):**
 
 ```zsh
-ADC_PROJECT_HOME=~/src/tpo42-asciidoc-container   # your checkout
-fpath=("${ADC_PROJECT_HOME}/lib/completions" $fpath)
+ADOC_PROJECT_HOME=~/src/tpo42-asciidoc-container   # your checkout
+fpath=("${ADOC_PROJECT_HOME}/lib/completions" $fpath)
 autoload -Uz _adcw
 ```
 
@@ -133,14 +133,20 @@ See [ADR-006](adr/adr-006.adoc) for shell completion details.
 
 ### Configuration
 
-| Variable           | Purpose                                   | Default                            |
-| ------------------ | ----------------------------------------- | ---------------------------------- |
-| `ADC_PROJECT_HOME` | Path to tpo42-asciidoc-container checkout | auto-detected from script location |
-| `ADOC_COMPOSE`     | Explicit docker-compose.yml path          | auto-detect                        |
-| `ADOC_SERVICE`     | Service name in compose file              | auto-detected                      |
-| `ADOC_WORKSPACE`   | Workspace folder for devcontainer         | `.`                                |
-| `CONTAINER_TAG`    | Explicit container tag                    | git describe or `latest`           |
-| `CONTAINER_IMAGE`  | Explicit full image reference             | `tpo42/adoc:<tag>`                 |
+| Variable            | Purpose                                    | Default                                 |
+| ------------------- | ------------------------------------------ | --------------------------------------- |
+| `ADOC_VERSION`      | Toolchain version to use                   | the released version                    |
+| `ADOC_REGISTRY`     | Registry and namespace to pull from        | `ghcr.io/tpo42`                         |
+| `ADOC_IMAGE`        | Full image reference, overriding the three | `${ADOC_REGISTRY}/adoc:${ADOC_VERSION}` |
+| `ADOC_COMPOSE`      | Explicit compose file path                 | auto-detect                             |
+| `ADOC_SERVICE`      | Service name in compose file               | auto-detected                           |
+| `ADOC_WORKSPACE`    | Workspace folder for devcontainer          | `.`                                     |
+| `ADOC_PROJECT_HOME` | Path to tpo42-asciidoc-container checkout  | auto-detected from script location      |
+
+`ADOC_REGISTRY` is what makes a mirror or a house image cheap: point it at an
+internal registry to pull the same toolchain from there, or at your own
+namespace to run a derived image without touching the wrapper. `ADOC_IMAGE`
+takes over completely when the name does not follow that shape.
 
 ### Examples
 
@@ -199,7 +205,7 @@ everyone:
 
 ```bash
 adcw validate -i doc.adoc          # PlantUML, C4, ArchiMate, Graphviz, Ditaa
-CONTAINER_IMAGE=ghcr.io/tpo42/adoc-with-mermaid:latest adcw validate -i doc.adoc
+ADOC_IMAGE=ghcr.io/tpo42/adoc-with-mermaid:latest adcw validate -i doc.adoc
 
 ./bin/adcbw                        # build the toolchain
 ./bin/adcbw --with-mermaid         # build the variant that renders Mermaid
@@ -325,7 +331,7 @@ docker compose -f qa-compose.yml up -d --build
 # 4. The image the AsciiDoc gate validates against. The tag is pinned because
 #    the git-derived one flips between `-dirty` and clean as you commit;
 #    rebuild it whenever container/ changes
-CONTAINER_TAG=local ./bin/adcbw
+ADOC_VERSION=local ./bin/adcbw
 
 # 5. Wire the git hooks
 lefthook install

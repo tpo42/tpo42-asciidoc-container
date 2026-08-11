@@ -109,7 +109,7 @@ jobs:
       # whatever a runner happens to carry rather than being declared in advance.
       - name: Container gates, once per runtime
         env:
-          CONTAINER_TAG: local
+          ADOC_VERSION: local
         run: |
           set -u
           rc=0

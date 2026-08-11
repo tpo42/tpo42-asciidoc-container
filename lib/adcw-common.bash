@@ -2,8 +2,10 @@
 # ADCW Common — shared infrastructure for bin/adcw and bin/adcbw
 #
 # Environment variables (all optional):
-#   ADC_PROJECT_HOME  — Path to tpo42-asciidoc-container checkout (contributor)
-#   CONTAINER_TAG     — Explicit override for container tag
+#   ADOC_VERSION      — Toolchain version to use (default: the released version)
+#   ADOC_REGISTRY     — Registry and namespace to pull from (default: ghcr.io/tpo42)
+#   ADOC_IMAGE        — Full image reference, overriding registry/name/version together
+#   ADOC_PROJECT_HOME — Path to tpo42-asciidoc-container checkout (contributor)
 
 _ADCW_MISSING_RUNNER="Unable to locate a container runtime installation on this system.
 
@@ -218,19 +220,49 @@ standalone container-compose, docker-compose and podman-compose."
     return 1
 }
 
-# Resolve container tag: explicit env → git describe → "latest"
-_adcw_detect_tag() {
-    [[ -n "${CONTAINER_TAG:-}" ]] && return 0
+# The toolchain version this wrapper asks for. The release workflow replaces the value
+# below when it builds the distributed script, so an installed adcw names the version it
+# was shipped with instead of deriving one.
+_ADCW_RELEASE_VERSION=""
 
-    if [[ -n "${ADC_PROJECT_HOME:-}" ]] && [[ -d "${ADC_PROJECT_HOME}/.git" ]]; then
+# Where images are pulled from. Overridable so that a consumer can mirror the image into
+# their own registry, or publish a derived one beside it, without editing the wrapper.
+: "${ADOC_REGISTRY:=ghcr.io/tpo42}"
+
+# Resolve ADOC_VERSION: explicit env → release constant → git describe → "latest"
+#
+# git describe is the contributor's answer, not the consumer's: it produces the branch
+# slug of whatever checkout ADOC_PROJECT_HOME points at, which is meaningful only while
+# building from that checkout.
+_adcw_detect_version() {
+    [[ -n "${ADOC_VERSION:-}" ]] && return 0
+
+    if [[ -n "${_ADCW_RELEASE_VERSION}" ]]; then
+        ADOC_VERSION="${_ADCW_RELEASE_VERSION}"
+        return 0
+    fi
+
+    if [[ -n "${ADOC_PROJECT_HOME:-}" ]] && [[ -d "${ADOC_PROJECT_HOME}/.git" ]]; then
         local git_bin
         git_bin="$(command -v git)" || true
         if [[ -n "${git_bin}" ]]; then
-            CONTAINER_TAG="$("${git_bin}" -C "${ADC_PROJECT_HOME}" \
+            ADOC_VERSION="$("${git_bin}" -C "${ADOC_PROJECT_HOME}" \
                 describe --all --always --dirty 2>/dev/null |
-                sed -e 's,^heads/,,g' -e 's,^main$,latest,g' | tr / -)" || true
+                sed -e 's,^heads/,,g' -e 's,^tags/,,g' -e 's,^main$,latest,g' | tr / -)" || true
         fi
     fi
 
-    : "${CONTAINER_TAG:=latest}"
+    : "${ADOC_VERSION:=latest}"
+}
+
+# Resolve ADOC_IMAGE from registry, name and version, unless the caller named one.
+#
+# ${1} is the image name without registry ("adoc", "adoc-with-mermaid"). An empty
+# ADOC_REGISTRY yields a bare local name, which is what a purely local build wants.
+_adcw_resolve_image() {
+    local name="$1"
+    [[ -n "${ADOC_IMAGE:-}" ]] && return 0
+
+    _adcw_detect_version || return 1
+    ADOC_IMAGE="${ADOC_REGISTRY:+${ADOC_REGISTRY}/}${name}:${ADOC_VERSION}"
 }

@@ -10,7 +10,7 @@ Use the `adcw` command to process AsciiDoc files via the tpo42/adoc container to
 
 ## Prerequisites
 
-The `adcw` command must be in PATH (e.g. via Homebrew or `ADC_PROJECT_HOME/bin`). It auto-detects the execution context:
+The `adcw` command must be in PATH (e.g. via Homebrew or `ADOC_PROJECT_HOME/bin`). It auto-detects the execution context:
 
 1. **Docker Compose**: If `docker-compose.yml` with adoc service exists
 2. **Devcontainer**: If `.devcontainer/devcontainer.json` references tpo42/adoc

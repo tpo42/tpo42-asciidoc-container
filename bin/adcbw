@@ -6,12 +6,12 @@ set -e
 set -u
 set -o pipefail
 
-# Resolve lib directory — ADC_PROJECT_HOME (contributor/brew) or relative to this script
-: "${ADC_PROJECT_HOME:=$(realpath "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")}"
-_ADCW_LIB_DIR="${ADC_PROJECT_HOME}/lib"
+# Resolve lib directory — ADOC_PROJECT_HOME (contributor/brew) or relative to this script
+: "${ADOC_PROJECT_HOME:=$(realpath "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")}"
+_ADCW_LIB_DIR="${ADOC_PROJECT_HOME}/lib"
 
 if [[ ! -f "${_ADCW_LIB_DIR}/adcw-common.bash" ]]; then
-    echo "Error: Cannot find lib/adcw-common.bash (ADC_PROJECT_HOME=${ADC_PROJECT_HOME})" >&2
+    echo "Error: Cannot find lib/adcw-common.bash (ADOC_PROJECT_HOME=${ADOC_PROJECT_HOME})" >&2
     exit 1
 fi
 
@@ -22,19 +22,19 @@ source "${_ADCW_LIB_DIR}/adcw-common.bash"
 # build produces the *last* one, which is the variant carrying a browser — 1.68 GB
 # nobody asked for.
 BUILD_TARGET="adoc"
-IMAGE_NAME="tpo42/adoc"
+IMAGE_NAME="adoc"
 
 case "${1:-}" in
 --with-mermaid)
     BUILD_TARGET="adoc-with-mermaid"
-    IMAGE_NAME="tpo42/adoc-with-mermaid"
+    IMAGE_NAME="adoc-with-mermaid"
     shift
     ;;
 -h | --help)
     echo "Usage: adcbw [--with-mermaid]"
     echo ""
-    echo "  (default)        Build tpo42/adoc — the delivered toolchain"
-    echo "  --with-mermaid   Build tpo42/adoc-with-mermaid — the same plus a browser,"
+    echo "  (default)        Build adoc — the delivered toolchain"
+    echo "  --with-mermaid   Build adoc-with-mermaid — the same plus a browser,"
     echo "                   roughly twice the size (ADR-008)"
     exit 0
     ;;
@@ -64,11 +64,12 @@ fi
 # a different engine than the run resolves, and the image would not be where it is looked
 # for. See ADR-009.
 _adcw_detect_runner run
-_adcw_detect_tag
+# The same resolution bin/adcw performs, so the build lands under the name the run looks
+# for. ADOC_IMAGE set by the caller wins on both sides, which is what makes a mirrored or
+# derived image work without either wrapper knowing about it.
+_adcw_resolve_image "${IMAGE_NAME}"
 
-CONTAINER_IMAGE="${IMAGE_NAME}:${CONTAINER_TAG}"
-
-echo "Building ADCW Container: ${CONTAINER_IMAGE}"
+echo "Building ADCW Container: ${ADOC_IMAGE}"
 echo "   Using: ${_ADCW_CONTAINER_RUNNER_BIN}"
 
 # The bare verb, not `buildx build`. `buildx` is Docker's own spelling: nerdctl and
@@ -84,9 +85,9 @@ echo "   Using: ${_ADCW_CONTAINER_RUNNER_BIN}"
     --build-arg=USER_NAME="$(id -un)" \
     --build-arg=USER_GROUP_NAME="$(id -gn)" \
     --target="${BUILD_TARGET}" \
-    --file "${ADC_PROJECT_HOME}/container/Containerfile" \
-    --tag="${CONTAINER_IMAGE}" \
-    "${ADC_PROJECT_HOME}/container"
+    --file "${ADOC_PROJECT_HOME}/container/Containerfile" \
+    --tag="${ADOC_IMAGE}" \
+    "${ADOC_PROJECT_HOME}/container"
 
 echo "Container built successfully!"
 echo ""
@@ -97,4 +98,4 @@ echo "  ./bin/adcw validate -i mydoc.adoc                          # Validate sy
 echo ""
 # Naming the store, not just the image: it is the half of the answer that decides whether
 # `adcw` will find this build, and it is invisible from `adcw`'s side.
-echo "Container: ${CONTAINER_IMAGE} (local image store of ${_ADCW_CONTAINER_RUNNER_BIN##*/})"
+echo "Container: ${ADOC_IMAGE} (local image store of ${_ADCW_CONTAINER_RUNNER_BIN##*/})"
