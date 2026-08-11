@@ -170,7 +170,13 @@ end.each do |diagram_block|
       temp_file = "/tmp/#{base_name}.plantuml"
       File.write(temp_file, source_content)
 
-      if system("java -jar #{ENV['PLANTUML_JAR']} -tsvg -pipe < #{temp_file} > #{rendered_file}")
+      # Array form, not a shell string: an output directory containing a space used to
+      # split into two words, so the redirect landed on a truncated path. The command
+      # still succeeded and the caller was told "Rendered", while the file was written
+      # somewhere else entirely. Redirection has to be done by Ruby now that no shell
+      # is involved.
+      if system("java", "-jar", ENV["PLANTUML_JAR"].to_s, "-tsvg", "-pipe",
+                in: temp_file, out: rendered_file)
         puts "   🖼️  Rendered: #{base_name}.svg"
       else
         puts "   ⚠️  Failed to render: #{base_name}.plantuml"
@@ -181,7 +187,7 @@ end.each do |diagram_block|
       temp_file = "/tmp/#{base_name}.dot"
       File.write(temp_file, source_content)
 
-      if system("dot -Tsvg #{temp_file} -o #{rendered_file}")
+      if system("dot", "-Tsvg", temp_file, "-o", rendered_file)
         puts "   🖼️  Rendered: #{base_name}.svg"
       else
         puts "   ⚠️  Failed to render: #{base_name}.dot"
