@@ -33,4 +33,4 @@ container and cuts releases — it runs neither the tests nor shellcheck.
 - **User mapping**: The Containerfile accepts `USER_UID`/`USER_GID`/`USER_NAME`/`USER_GROUP_NAME` build args for host permission alignment.
 - **ADRs** in `adr/*.adoc` document all significant decisions. New decisions should follow the same AsciiDoc ADR format.
 - **Commits** use conventional commit style (`feat:`, `fix:`, `docs:`). Always `--signoff`.
-- **Gemfile** pins major versions (`~>`) — do not lock to exact versions or commit a `Gemfile.lock`.
+- **Gemfile** pins major versions (`~>`) — do not lock to exact versions or commit a `Gemfile.lock`. It belongs to the delivered image and to `bundle`. A gate that happens to be a gem is a gate: pinned as an `ARG` beside the other gate versions in `container/mini.Containerfile` and installed with `gem install <name> -v <version>`. That holds while there are two or three of them.

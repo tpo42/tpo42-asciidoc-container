@@ -82,6 +82,15 @@ pre-commit:
       glob: "lib/completions/_*"
       run: "{mini} zsh -n {staged_files}"
 
+    # Ruby arrived with container/resources/extract-diagrams.rb, which is what the
+    # catalog's "wire when there is actual .rb code" was waiting for. rubocop lints and
+    # formats in one tool; this job only lints — `-a` rewrites, and the same rule as for
+    # shfmt applies: the hook reports, the author decides.
+    - name: rubocop
+      tags: [mini, ruby]
+      glob: "*.rb"
+      run: "{mini} rubocop --force-exclusion {staged_files}"
+
     - name: yamllint
       tags: [mini, yaml]
       glob: "*.{yml,yaml}"
@@ -158,6 +167,45 @@ pre-commit:
     - name: gitleaks
       tags: [mini, secrets]
       run: "{mini} gitleaks protect --staged --redact --no-banner --source ."
+
+    # A file starting with #! must be executable, and an executable file must start
+    # with #! — pre-commit ships these as check-shebang-scripts-are-executable and
+    # check-executables-have-shebangs, and the catalog's answer for both is a shell
+    # command rather than a framework.
+    #
+    # Both directions are wired because both have bitten: the first found three files
+    # whose mode contradicted their shebang, one of them a command script whose missing
+    # bit container/Containerfile was papering over with a chmod after COPY. The second
+    # catches the reverse — a data file that picked up +x by accident.
+    #
+    # head -c2 rather than libmagic: the question is literally "do the first two bytes
+    # read #!", and file(1) would answer a broader question less precisely.
+    #
+    # The mode comes from git, not from `test -x`, and that is not fussiness. A macOS
+    # bind mount presents every file to the container as executable, so `test -x` inside
+    # {mini} answers yes for .gitignore and README.md alike — measured, not feared. Git
+    # stores 100644 or 100755 and reports the same answer on every host, which is also
+    # the only mode that will ever reach anyone else.
+    #
+    # This wants to be a small script rather than an inline blob; it is inline for now.
+    - name: shebang-exec-match
+      tags: [mini]
+      glob: "*"
+      run: |
+        {mini} sh -c '
+          rc=0
+          for f in "$@"; do
+            [ -f "$f" ] || continue
+            mode=$(git ls-files --stage -- "$f" | cut -d" " -f1)
+            [ -n "$mode" ] || continue
+            if [ "$(head -c2 "$f" 2>/dev/null)" = "#!" ]; then
+              [ "$mode" = "100755" ] || { echo "shebang but not executable: $f"; rc=1; }
+            elif [ "$mode" = "100755" ]; then
+              echo "executable but no shebang: $f"; rc=1
+            fi
+          done
+          exit $rc
+        ' sh {staged_files}
 
     # Binary artefacts by type, not by size.
     - name: artifact-guard
@@ -242,7 +290,7 @@ pre-push:
     # gem's PlantUML jar, and the type this image does not render.
     - name: extract-diagrams-cases
       tags: [domain, asciidoc, test]
-      glob: "{container/resources/extract-diagrams.sh,test/extract-diagrams-cases.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
+      glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
       run: /bin/bash test/extract-diagrams-cases.bash
 
 commit-msg:

@@ -1,0 +1,38 @@
+# .rubocop.yml — configuration for the Ruby in this repository.
+#
+# There is exactly one Ruby file: container/resources/extract-diagrams.rb, installed
+# into the delivered image as /usr/local/bin/extract-diagrams. It is a command-line
+# program, not a library, so the cops written for application code are relaxed where
+# they would push the script towards a structure it does not need.
+#
+# Wired per the qa-ready catalog, which lists rubocop for Ruby with the condition
+# "wire when there is actual .rb code". rubocop lives in the mini QA image
+# (container/mini.Containerfile), not in the delivered one — it checks a host file and
+# is a developer tool.
+
+AllCops:
+  # ruby:3-trixie is what container/Containerfile builds on, so that is what the script
+  # actually runs under. Kept in step with the FROM line by hand; there is one of each.
+  TargetRubyVersion: 3.1
+  NewCops: enable
+
+# A script is read top to bottom, and the order in which things happen is the thing a
+# reader needs. Cutting it into methods to satisfy a length metric would hide that.
+Metrics/BlockLength:
+  Enabled: false
+Metrics/MethodLength:
+  Enabled: false
+
+# One linear program, so the top level is where the work is.
+Style/TopLevelMethodDefinition:
+  Enabled: false
+
+# Documentation cops target classes and modules; there are none here.
+Style/Documentation:
+  Enabled: false
+
+# .editorconfig is the SSOT for whitespace and deliberately carries no line length, so
+# this is the one place it is stated for Ruby. Matches the prose width used throughout
+# the repository's comments rather than rubocop's default 120.
+Layout/LineLength:
+  Max: 110

@@ -57,7 +57,6 @@ ENV BUNDLE_DISABLE_PLATFORM_WARNINGS=true
 ENV GEM_HOME=/usr/gem
 ENV GEM_BIN_PATH=${GEM_HOME}/bin
 ENV GEM_CACHE_PATH=${GEM_HOME}/cache
-ENV RUBYOPT=-W0
 ENV PATH="${GEM_BIN_PATH}:$PATH"
 
 # Install Ruby gems
@@ -79,7 +78,7 @@ RUN --mount=type=bind,source=Gemfile,target=/tmp/Gemfile,ro \
     BUNDLE_GEMFILE=/tmp/Gemfile bundle install
 
 COPY resources/flatten.sh /usr/local/bin/flatten
-COPY resources/extract-diagrams.sh /usr/local/bin/extract-diagrams
+COPY resources/extract-diagrams.rb /usr/local/bin/extract-diagrams
 COPY resources/validate.sh /usr/local/bin/validate
 RUN chmod +x /usr/local/bin/flatten /usr/local/bin/extract-diagrams /usr/local/bin/validate
 

@@ -1,0 +1,12 @@
+= Broken PlantUML Block
+
+The block below is not valid PlantUML: it opens a sequence but never declares a
+diagram, and the `@startuml` marker is missing entirely. PlantUML answers with an
+error image and a non-zero exit, which is what this fixture exists to produce.
+
+[plantuml]
+----
+this is not plantuml at all
+!!! neither is this
+@enduml
+----

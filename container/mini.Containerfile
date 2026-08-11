@@ -36,6 +36,42 @@
 # uses `x64` where everyone else writes `amd64`, and dclint ships a glibc and a musl
 # build.
 
+# --- builder: what has to be compiled -----------------------------------------
+#
+# rubocop's dependency tree carries native extensions — json, racc and prism ship no
+# prebuilt gem for this platform. The compiler that installs them is of no use afterwards,
+# so it lives in a stage that is discarded. Same base image, therefore the same Ruby ABI,
+# which is what makes copying built extensions legitimate rather than lucky.
+#
+# Staged the way a package build stages one, which for rubygems means constructing the
+# path rather than setting a variable it reads: --install-dir and --bindir point at
+# <staging><final path>, and --env-shebang keeps the builder's absolute ruby out of the
+# binstub. This is the shape Yocto's ruby.bbclass uses.
+#
+# A prefix of its own, and --install-dir rather than GEM_HOME, so the compiled extensions
+# stay beside the gem that owns them: Fedora's rubygems keeps those under lib64 for its
+# *default* directories, and only for those.
+FROM registry.fedoraproject.org/fedora-minimal:44 AS builder
+
+ARG RUBOCOP_VERSION="1.89.0"
+
+RUN microdnf update -y \
+    && microdnf install -y --setopt=install_weak_deps=0 \
+        gcc \
+        make \
+        redhat-rpm-config \
+        ruby \
+        ruby-devel \
+        rubygems \
+    && microdnf clean all
+
+RUN mkdir -p /opt/staging \
+    && gem install --no-document --env-shebang \
+        --install-dir /opt/staging/opt/gems \
+        --bindir /opt/staging/usr/local/bin \
+        rubocop -v "${RUBOCOP_VERSION}"
+
+# --- the fleet ----------------------------------------------------------------
 FROM registry.fedoraproject.org/fedora-minimal:44
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -52,9 +88,14 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # types, which is how the extensionless bin/adcw is caught), git-core (lefthook needs git;
 # the -core split leaves out the Perl tooling nothing here calls), curl + ca-certificates
 # (to fetch the gates), tar + gzip (to unpack them — fedora-minimal carries neither),
-# python3-pip (the runtime the Python gates run on).
+# python3-pip and ruby (the runtimes the Python and Ruby gates run on — the runtimes, not
+# the gates themselves).
 #
-# --setopt=install_weak_deps=0 is Fedora's equivalent of --no-install-recommends.
+# --setopt=install_weak_deps=0 is Fedora's equivalent of --no-install-recommends, and
+# rubypick and rubygems are what it costs: Fedora's `ruby` package installs
+# /usr/bin/ruby-mri and only *recommends* the stub that provides the plain /usr/bin/ruby,
+# and it recommends rubygems rather than requiring it. Without the two, a gem's
+# `#!/usr/bin/env ruby` finds nothing, and finding ruby then fails on `require "rubygems"`.
 RUN microdnf update -y \
     && microdnf install -y --setopt=install_weak_deps=0 \
         ca-certificates \
@@ -64,9 +105,19 @@ RUN microdnf update -y \
         gzip \
         jq \
         python3-pip \
+        ruby \
+        rubypick \
+        rubygems \
         tar \
         zsh \
     && microdnf clean all
+
+# --- gates that ship as gems --------------------------------------------------
+# Built in the builder stage and copied in without the toolchain that built them. The
+# executables land in /usr/local/bin, which is already on PATH; GEM_HOME is what ruby
+# needs to find the library beside them.
+ENV GEM_HOME=/opt/gems
+COPY --from=builder /opt/staging/ /
 
 # --- gates that are Python programs ------------------------------------------
 # In mini.requirements.txt beside this file, so the pins sit where a reader looks for them
@@ -121,6 +172,7 @@ RUN ec --version \
     && gitleaks version \
     && hadolint --version \
     && dclint --version \
+    && rubocop --version \
     && shellcheck --version \
     && shfmt --version \
     && zsh --version \
