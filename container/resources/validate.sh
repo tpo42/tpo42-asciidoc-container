@@ -141,9 +141,25 @@ for input in "${INPUT_ARGS[@]}"; do
             find_flag="-path"
             [[ "${input}" != ./* ]] && input="./${input}"
         fi
+        matched=0
         while IFS= read -r -d '' file; do
             FILES+=("$file")
+            matched=$((matched + 1))
         done < <(find . ${find_flag} "${input}" -type f -print0 2>/dev/null || true)
+
+        # A pattern that matches nothing is the same kind of accident as a file that
+        # is not there, and --strict has to treat it the same way. It did not: only
+        # the plain-file branch below consulted STRICT, so a gate calling
+        # `validate --strict -i 'adr/*.adoc' -i 'req/*.adoc'` kept passing after one
+        # of those directories was renamed away, quietly checking half of what it
+        # claimed to check.
+        if [[ "${matched}" -eq 0 ]]; then
+            if [[ "${STRICT}" == true ]]; then
+                echo "❌ Pattern matched no files: ${input}"
+                exit 1
+            fi
+            echo "⚠️  Skipping (no match): ${input}"
+        fi
     elif [[ -f "${input}" ]]; then
         FILES+=("${input}")
     else
