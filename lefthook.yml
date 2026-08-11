@@ -19,7 +19,10 @@
 # A template expands to a *prefix* that ends before the tool name, so images used here
 # must not set an ENTRYPOINT that supplies the binary.
 
-min_version: 2.0.0
+# The current release, not the oldest one that happens to parse this file. An older
+# lefthook swallows an unknown key without a word, so a version floor that lags a key
+# used here turns a gate into a no-op nobody is told about.
+min_version: 2.1.10
 
 # Empty strings, not empty keys: a key without a value is YAML null, and lefthook's
 # schema wants a string here — `lefthook validate` rejects null while expanding it to the
@@ -33,6 +36,11 @@ templates:
 
 pre-commit:
   parallel: true
+  # Formatters below write; this is what makes them a gate anyway. lefthook compares the
+  # tracked files before and after, so a correction fails the commit and stays unstaged
+  # for review — deliberately not `stage_fixed`, which would commit it unseen.
+  fail_on_changes: "always"
+  fail_on_changes_diff: true
   jobs:
 
     # ---------------------------------------------------------------- mini bucket
@@ -64,14 +72,12 @@ pre-commit:
       glob: "*.bash"
       run: "{mini} shellcheck -x -s bash {staged_files}"
 
-    # Check, do not rewrite: a violation flips the exit code and the author decides,
-    # instead of the hook editing files underneath them. -i 4 matches the existing
-    # scripts and is the SSOT for shell style — .editorconfig deliberately does not
-    # carry indent_style for shell (see the catalog note on SPOT).
+    # -i 4 matches the existing scripts and is the SSOT for shell style — .editorconfig
+    # deliberately does not carry indent_style for shell (see the catalog note on SPOT).
     - name: shfmt
       tags: [mini, shell, format]
       file_types: ["text/x-shellscript"]
-      run: "{mini} shfmt -d -i 4 {staged_files}"
+      run: "{mini} shfmt -w -i 4 {staged_files}"
 
     # zsh completions are not shell in shellcheck's sense: it refuses the dialect
     # outright ("Unknown shell: zsh", upstream #809). `zsh -n` is the interpreter's own
@@ -83,13 +89,12 @@ pre-commit:
       run: "{mini} zsh -n {staged_files}"
 
     # Ruby arrived with container/resources/extract-diagrams.rb, which is what the
-    # catalog's "wire when there is actual .rb code" was waiting for. rubocop lints and
-    # formats in one tool; this job only lints — `-a` rewrites, and the same rule as for
-    # shfmt applies: the hook reports, the author decides.
+    # catalog's "wire when there is actual .rb code" was waiting for. -a only: the safe
+    # autocorrections. -A rewrites semantics and has no business in a hook.
     - name: rubocop
       tags: [mini, ruby]
       glob: "*.rb"
-      run: "{mini} rubocop --force-exclusion {staged_files}"
+      run: "{mini} rubocop -a --force-exclusion {staged_files}"
 
     - name: yamllint
       tags: [mini, yaml]
@@ -135,15 +140,15 @@ pre-commit:
       glob: "{*Containerfile,*Dockerfile,*.dockerfile}"
       run: "{mini} hadolint {staged_files}"
 
-    # Checking rather than rewriting, like shfmt above. Line wrapping is left as written:
-    # reflowed prose turns a one-word edit into a paragraph-sized diff. Everything else —
-    # list markers, emphasis, code fences, heading style — is still normalised.
-    # --number keeps ordered lists numbered as written. mdformat-frontmatter is why the
-    # YAML header of .claude/skills/adcw/SKILL.md survives untouched.
+    # Line wrapping is left as written: reflowed prose turns a one-word edit into a
+    # paragraph-sized diff. Everything else — list markers, emphasis, code fences,
+    # heading style — is normalised. --number keeps ordered lists numbered as written.
+    # mdformat-frontmatter is why the YAML header of .claude/skills/adcw/SKILL.md
+    # survives untouched.
     - name: mdformat
       tags: [mini, markdown, format]
       glob: "*.md"
-      run: "{mini} mdformat --check --number {staged_files}"
+      run: "{mini} mdformat --number {staged_files}"
 
     # git-native, so deliberately without a template: git is part of the host floor.
     - name: merge-markers
