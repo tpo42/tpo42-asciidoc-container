@@ -203,12 +203,20 @@ _detect_runner_in() {
     )
 }
 
+# Resolve a compose implementation against the stubs in ${1} and print it as one line.
+#
+# Selecting for `compose` is what fills _adcw_compose_cmd — the probe that decides
+# whether a runtime can compose is the same code that knows how it is spelled, so there
+# is no second call to make. Printing "${_adcw_compose_cmd[*]}" flattens the array for
+# comparison; the array-ness itself is what test_compose_cmd_survives_a_spaced_path
+# asserts, since that is the property a string round trip used to destroy.
 _find_compose_cmd_in() {
     local dir="$1"
     (
         PATH="${dir}"
         unset _ADCW_CONTAINER_RUNNER_BIN
-        _adcw_find_compose_cmd 2>&1
+        _adcw_detect_runner compose 2>&1 || exit 1
+        printf '%s' "${_adcw_compose_cmd[*]}"
     )
 }
 
@@ -289,6 +297,38 @@ test_compose_cmd_stays_with_its_own_runtime() {
     # to a different engine holding different containers, so the service started under
     # podman would simply not be there.
     assert_equals "podman-compose" "$(_find_compose_cmd_in "${tmp}")" "standalone pairing"
+
+    rm -rf "${tmp}"
+    echo "  PASS"
+}
+
+test_compose_cmd_survives_a_spaced_path() {
+    echo "Testing: A runtime under a path with a space stays one argv word..."
+    local tmp dir out count first
+    tmp="$(mktemp -d)"
+    dir="${tmp}/Docker Desktop/bin"
+    mkdir -p "${dir}"
+    _write_runner_stub "${dir}" docker compose
+
+    # The regression the array replaced: the compose command was printed as a string and
+    # split back with `read -a`, which splits on IFS and knows nothing about quoting. A
+    # "Docker Desktop" directory — the realistic case, and the likely one on Windows —
+    # became two argv words, so the invocation pointed at a path that does not exist.
+    out="$(
+        PATH="${dir}"
+        unset _ADCW_CONTAINER_RUNNER_BIN
+        _adcw_detect_runner compose >/dev/null 2>&1 || exit 1
+        printf '%s\n%s\n' "${#_adcw_compose_cmd[@]}" "${_adcw_compose_cmd[0]}"
+    )" || {
+        echo "  FAIL: no compose implementation resolved"
+        exit 1
+    }
+
+    count="$(echo "${out}" | sed -n 1p)"
+    first="$(echo "${out}" | sed -n 2p)"
+
+    assert_equals "2" "${count}" "argv is <runtime> compose, two words"
+    assert_equals "${dir}/docker" "${first}" "the spaced path stays one word"
 
     rm -rf "${tmp}"
     echo "  PASS"
@@ -580,6 +620,7 @@ test_runner_compose_skips_the_incapable
 test_compose_cmd_is_the_runtime_subcommand
 test_compose_cmd_apple_standalone_is_found
 test_compose_cmd_stays_with_its_own_runtime
+test_compose_cmd_survives_a_spaced_path
 test_runner_pinned_is_held_to_the_requirement
 test_runner_none_installed
 test_runner_pinned_must_exist

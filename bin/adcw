@@ -195,16 +195,13 @@ _adcw_setup_compose() {
         fi
     fi
 
-    # Compose is what this mode needs, so compose is what the runtime is selected for.
+    # Compose is what this mode needs, so compose is what the runtime is selected for —
+    # and selecting it is what fills _adcw_compose_cmd, because the probe that decides
+    # whether a runtime can compose is the same code that knows how it is spelled.
     # Detected here, in the parent shell: the previous shape called the detection from
-    # inside the command substitution below, where the resolved runtime died with the
-    # subshell and every later reader saw an unset variable. See ADR-009.
+    # inside a command substitution, where both the resolved runtime and the compose
+    # command died with the subshell. See ADR-009.
     _adcw_detect_runner compose || return 1
-
-    # Multi-word commands ("docker compose") need an array, not a string
-    local compose_cmd
-    compose_cmd="$(_adcw_find_compose_cmd)" || return 1
-    read -r -a _adcw_compose_cmd <<<"${compose_cmd}"
 
     _adcw_check_compose_running || return 1
 }
@@ -367,21 +364,6 @@ _adcw_find_adoc_service() {
             exit
         }
     ' "${compose_path}"
-}
-
-# Print the compose command belonging to the runtime in use.
-#
-# Selection has already happened by the time this runs: `_adcw_detect_runner compose`
-# only ever hands back a runtime that carries compose, and reports the failure itself
-# when none does — so there is no second error message here to keep in step with the
-# first. What is left is the spelling, `docker compose` against `podman-compose`, and it
-# is derived rather than remembered: a probe result parked in a global would have to
-# stay consistent with _ADCW_CONTAINER_RUNNER_BIN, and one process costs less than that
-# obligation. Detecting again is idempotent — an already resolved runtime is only
-# re-asked whether it still satisfies the requirement.
-_adcw_find_compose_cmd() {
-    _adcw_detect_runner compose || return 1
-    _adcw_runner_compose_cmd "${_ADCW_CONTAINER_RUNNER_BIN}"
 }
 
 _adcw_show_usage() {
