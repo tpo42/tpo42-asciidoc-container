@@ -64,11 +64,68 @@ jobs:
           echo "new_tag=${NEW_TAG}" >> "${GITHUB_OUTPUT}"
           echo "${NEW_TAG} (${{ steps.bump.outputs.bump }} bump from ${{ steps.bump.outputs.latest_tag }})"
 
+      # The wrapper, for people who install it by hand rather than through the tap.
+      # Two files, because bin/adcw sources the lib from ../lib relative to itself —
+      # so they have to land as <prefix>/bin/adcw and <prefix>/lib/adcw-common.bash.
+      #
+      # The version is stamped in here rather than derived at runtime: git describe
+      # answers with the contributor's branch, which is never what a consumer wants.
+      # Without the leading v, because that is how container-publish tags the images.
+      - name: Build the wrapper artefacts
+        if: steps.version.outputs.new_tag
+        run: |
+          set -eu
+          VERSION="${{ steps.version.outputs.new_tag }}"
+          VERSION="${VERSION#v}"
+
+          mkdir -p dist/bin dist/lib
+          cp bin/adcw dist/bin/adcw
+          sed -e "s|^_ADCW_RELEASE_VERSION=\"\"$|_ADCW_RELEASE_VERSION=\"${VERSION}\"|" \
+            lib/adcw-common.bash > dist/lib/adcw-common.bash
+
+          # A silent no-op here is how a published wrapper ends up asking for a tag that
+          # was never pushed, so the substitution is verified rather than assumed.
+          grep -qx "_ADCW_RELEASE_VERSION=\"${VERSION}\"" dist/lib/adcw-common.bash || {
+            echo "::error ::_ADCW_RELEASE_VERSION anchor not found in lib/adcw-common.bash"
+            exit 1
+          }
+
+          # And the artefact is asked what it will actually pull, which is the check
+          # that would have caught a v-prefix mismatch between wrapper and registry.
+          resolved="$(
+            unset ADOC_VERSION ADOC_IMAGE ADOC_REGISTRY
+            # shellcheck disable=SC1091
+            . dist/lib/adcw-common.bash
+            _adcw_resolve_image adoc
+            printf '%s' "${ADOC_IMAGE}"
+          )"
+          echo "artefact resolves to: ${resolved}"
+          [ "${resolved}" = "ghcr.io/tpo42/adoc:${VERSION}" ] || {
+            echo "::error ::resolved ${resolved}, expected ghcr.io/tpo42/adoc:${VERSION}"
+            exit 1
+          }
+
       - name: Generate release notes
         if: steps.version.outputs.new_tag
         run: |
           RANGE="${{ steps.bump.outputs.commit_range }}"
           git log "${RANGE}" --pretty=format:"- %s" > /tmp/release_notes.md
+          cat >> /tmp/release_notes.md <<'NOTES'
+
+
+          ## Installation without the tap
+
+          Both files are needed, and where they go matters — `adcw` finds the
+          library at `../lib` relative to itself:
+
+          ```bash
+          install -Dm755 adcw              ~/.local/bin/adcw
+          install -Dm644 adcw-common.bash  ~/.local/lib/adcw-common.bash
+          ```
+
+          The container images for this release are published to
+          `ghcr.io/tpo42/adoc` and `ghcr.io/tpo42/adoc-with-mermaid`.
+          NOTES
 
       - name: Create release
         if: steps.version.outputs.new_tag
@@ -77,7 +134,9 @@ jobs:
         run: |
           gh release create "${{ steps.version.outputs.new_tag }}" \
             --title "${{ steps.version.outputs.new_tag }}" \
-            --notes-file /tmp/release_notes.md
+            --notes-file /tmp/release_notes.md \
+            dist/bin/adcw \
+            dist/lib/adcw-common.bash
 
       - name: Trigger container publish with semver tag
         if: steps.version.outputs.new_tag
