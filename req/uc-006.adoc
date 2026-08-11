@@ -1,0 +1,44 @@
+= UC-006: Gate a documentation build on validation
+:date: 2026-08-11
+:actor-kind: system
+:actor: consuming project's CI pipeline
+:level: user goal
+
+== Goal
+
+Prevent a green build from producing a broken artefact. docToolchain reports
+missing includes, unresolved cross-references and syntax errors as warnings and
+keeps building, so the PDF ships with placeholders where content belongs. The
+pipeline needs validation to be a *gate*, not a report.
+
+== Main success scenario
+
+. The pipeline runs a validation stage first, using `ghcr.io/tpo42/adoc` pinned to
+  a floating major.
+. It invokes the image's `validate` command directly -- `docker.image(…).inside`
+  in Jenkins, a container job elsewhere -- with `--strict` over the compile units.
+. A non-zero exit fails the stage and the build stages do not run.
+. Only on success do the build stages produce PDF and HTML from the same sources.
+
+== What this demands
+
+* The container's commands must be usable **without the wrappers**. How much
+  freedom the pipeline has varies: a Jenkins wired to run every step through
+  `docker.image(…).inside {}` gives the job no way to start a container of its
+  own, so `adcw` could not be used there even if it were installed. A GitHub
+  Actions or GitLab job, or a more modern Jenkins that can start sibling
+  containers, has the choice. The requirement therefore is not "CI never uses the
+  wrappers" but "the container must not need them".
+* Exit codes are the interface. Everything the gate needs must be expressible as
+  zero or non-zero.
+* One-shot invocation must work as well as the long-lived containers of
+  <<uc-002.adoc#,UC-002>>. The warm-daemon benefit does not exist in CI, and
+  nothing may depend on it.
+* Tags must be stable enough to pin. A pipeline that re-pins on every upstream
+  release is a pipeline nobody maintains.
+
+== Notes
+
+This is why the image ships commands rather than only a toolchain, and it is the
+strongest argument against putting behaviour into the wrappers that the container
+cannot do on its own.

@@ -1,0 +1,41 @@
+= UC-004: Build a house toolchain on top of the image
+:date: 2026-08-11
+:actor-kind: persona
+:actor: toolchain owner in a consuming organisation
+:level: user goal
+:status: needs confirmation
+
+== Goal
+
+Take `tpo42/adoc` as a base and add what a particular organisation needs -- house
+fonts, corporate themes, extra gems, an internal Asciidoctor extension -- then
+distribute the result internally.
+
+== Main success scenario
+
+. The consumer writes their own Containerfile with `FROM ghcr.io/tpo42/adoc:0`.
+. They add their layers and build with their own tooling, into their own engine's
+  image store.
+. They push to their own registry and consume it exactly as in
+  <<uc-002.adoc#,UC-002>> -- devcontainer or compose, referencing their image
+  instead of the upstream one.
+
+== What this demands
+
+* A stable, published base image with a predictable tag scheme. The floating
+  major (`:0`) is what makes `FROM` viable without re-pinning on every release.
+* The image must be useful as a *base*, not only as a finished product: an
+  unprivileged user, a documented workspace path, no assumptions that break when
+  layers are added on top.
+* Nothing from ADCW. The wrappers are not in this path -- the consumer's build
+  system is.
+
+== Notes
+
+Recorded because it constrains the *image*, not the wrappers, and because it is
+the reason tag stability matters beyond this repository's own CI.
+
+This use case reflects an interpretation that has not yet been confirmed with the
+maintainer; the alternative reading is that the intent was extending the running
+environment rather than the image. The `:status:` attribute stays until that is
+settled.

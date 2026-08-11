@@ -1,0 +1,49 @@
+= UC-005: Change the container or its wrappers
+:date: 2026-08-11
+:actor-kind: persona
+:actor: contributor to this repository
+:level: summary
+
+== Goal
+
+Change the image, a command script or a wrapper, and see the effect before
+pushing. This is the only persona use case that exercises the local build path
+repeatedly.
+
+== Main success scenario
+
+. The contributor edits the Containerfile, a command script under
+  `container/resources/`, or a wrapper.
+. They run `bin/adcbw`, which derives a tag from `git describe` and builds into
+  the local image store of the selected runtime.
+. They run `bin/adcw <command>`, which resolves the same tag and must find the
+  image the previous step produced.
+. Local gates run before committing -- the shell test suite, the validate
+  regression suite, shellcheck.
+
+== Variations
+
+Verifying across runtimes::
+Pinning `_ADCW_CONTAINER_RUNNER_BIN` runs the same check against a named engine,
+which is also how the repository's own CI covers more than one.
+
+Variant image::
+`bin/adcbw --with-mermaid` selects the second build stage, which the default
+build must not produce by accident.
+
+== What this demands
+
+* Build and run must resolve the same engine. Two processes, minutes apart, with
+  nothing carried between them but the environment -- this is the pairing
+  ADR-009 exists for, and this use case is where it is exercised daily.
+* A tag derived from the checkout must mean the same thing to both wrappers.
+* Failure has to distinguish "never built" from "built somewhere else", because a
+  contributor who just watched a build succeed will otherwise read "not found" as
+  a bug in the tool.
+
+== Notes
+
+Structurally identical to the build half of <<uc-001.adoc#,UC-001>>, but run
+many times a day rather than once at setup. Where the two differ is tolerance:
+the author in UC-001 needs the failure explained, the contributor needs it to not
+happen.

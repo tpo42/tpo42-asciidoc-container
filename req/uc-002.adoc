@@ -1,0 +1,59 @@
+= UC-002: Improve documentation locally while CI builds it
+:date: 2026-08-11
+:actor-kind: persona
+:actor: documentation author
+:level: user goal
+
+== Goal
+
+Work on the documentation of a larger project locally -- edit, validate, preview
+-- while the authoritative build, review and deployment happen in CI. The author
+never builds a container image.
+
+Together with <<uc-003.adoc#,UC-003>> this is the mainstream: roughly 95% of
+consumers arrive through a devcontainer or a compose file that the project ships
+and the README explains.
+
+== Main success scenario
+
+. The project ships `.devcontainer/devcontainer.json` or a compose file naming
+  `ghcr.io/tpo42/adoc`, pinned to a floating major such as `:0`.
+. The author starts the environment -- `devcontainer up --workspace-folder .`, or
+  `docker compose up -d`.
+. They validate and render through that environment, either directly
+  (`docker compose exec adoc validate …`) or through ADCW, which detects the
+  environment and `exec`s into it.
+. The container stays alive across invocations, so repeated calls cost an `exec`
+  rather than a container start.
+. Committing hands over to CI, which validates and builds from the same images.
+
+== Variations
+
+Devcontainer over a plain image::
+`"image": "ghcr.io/tpo42/adoc:latest"` plus a `postCreateCommand` for project
+gems. Used where the container also serves the site -- Jekyll with
+`jekyll-asciidoc`, for instance.
+
+Devcontainer over a compose file::
+`"dockerComposeFile"` with `"service": "adoc"`, so the same definition serves the
+devcontainer and the command line. A sidecar such as docToolchain runs alongside;
+`devcontainer exec` reaches only the primary service, so the sidecar is driven
+through `compose exec`.
+
+== What this demands
+
+* The image comes from a registry. Nothing in this use case builds, so ADCW's
+  local build path is never exercised and the store pairing of ADR-009 never
+  arises.
+* Mode detection must recognise the environment the project actually ships, and
+  must not require the author to say which one it is.
+* Long-lived containers are the norm, not an optimisation: state that survives
+  between calls -- a Gradle daemon, a gem cache -- is the reason the setup is
+  shaped this way.
+
+== Notes
+
+Real examples: a Jekyll site driven from a devcontainer over the plain image, and
+a firmware project whose `compose.yaml` carries `adoc` alongside docToolchain and
+a code generator, with the convention that every service stays alive and is
+reached by `exec`.

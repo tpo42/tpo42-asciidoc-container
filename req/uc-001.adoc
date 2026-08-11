@@ -1,0 +1,58 @@
+= UC-001: Keep a handful of small AsciiDoc projects healthy
+:date: 2026-08-11
+:actor-kind: persona
+:actor: documentation author
+:level: user goal
+
+== Goal
+
+Produce and check AsciiDoc documents in two or three small projects without
+installing Ruby, Asciidoctor or a gem set on the host, and without a CI to lean
+on. This is docToolchain-lite: validation and rendering, nothing more.
+
+Typical for the situation this repository exists for -- the majority of
+industry projects have no solid documentation CI, and the author is on their own.
+
+== Main success scenario
+
+. The author obtains the image, either from `ghcr.io/tpo42/adoc` or by cloning
+  this repository and running `bin/adcbw`.
+. They run `adcw validate -i doc.adoc` from the project directory.
+. ADCW selects a container runtime, finds the image, and runs the command in a
+  throwaway container over the working directory.
+. Errors are reported with a non-zero exit code; a clean document is silent.
+
+== Variations
+
+Self-contained exchange with a colleague::
+`adcw flatten` resolves all includes into one file, so the document travels
+without its include tree.
+
+Debugging a single diagram::
+`adcw extract-diagrams` renders diagram blocks individually, which turns "the
+document fails somewhere" into "this block fails".
+
+Rendering::
+`adcw asciidoctor` / `adcw asciidoctor-pdf` for HTML and PDF output.
+
+== What this demands
+
+* The runtime is *chosen*, not configured. The author has whatever their machine
+  came with and should not have to know which engine ADCW picked.
+* If they built the image locally, the run must look in the store the build
+  filled -- the two are separate processes minutes apart. See ADR-009.
+* When the image is missing, the message must say so in terms the author can act
+  on, naming the store as well as the image.
+
+== Notes
+
+This is the minority path by volume -- most consumers arrive through
+<<uc-002.adoc#,UC-002>> or <<uc-003.adoc#,UC-003>> -- but it is the entry point,
+and the only persona use case besides <<uc-005.adoc#,UC-005>> in which ADCW
+builds and runs on the same host.
+
+The local build is real rather than theoretical, and it skews expert: it tends to
+be reached by people who build containers for a living and are compensating for a
+CI they do not have. That is worth knowing when weighing a diagnostic -- the
+population is small, capable, and arrives without the safety net that would
+otherwise catch the mistake.

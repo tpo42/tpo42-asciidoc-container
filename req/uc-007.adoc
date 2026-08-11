@@ -1,0 +1,44 @@
+= UC-007: Publish the image and hold the wrappers to their gates
+:date: 2026-08-11
+:actor-kind: system
+:actor: this repository's own CI
+:level: user goal
+
+== Goal
+
+Build and publish `tpo42/adoc`, and prove that the wrappers behave on more than
+the maintainer's machine. Distinct from <<uc-006.adoc#,UC-006>>: that pipeline
+*consumes* the image, this one *produces* it.
+
+== Main success scenario
+
+. A push triggers the workflow.
+. The image is built and published to `ghcr.io`, tagged so that consumers can pin
+  a floating major.
+. The gates run over the whole tree rather than over changed files only, so a
+  change in a file no gate globs still cannot slip through.
+
+== Variations
+
+Per-runtime verification::
+Pinning `_ADCW_CONTAINER_RUNNER_BIN` runs the wrapper gates once per runtime.
+This is the caller for which an explicitly named runtime must be authoritative:
+a silent fallback to a runtime that happens to work would make the matrix report
+success it never established.
+
+== What this demands
+
+* An explicitly named runtime is honoured or the shortfall is reported. Never
+  substituted -- a substitution turns a matrix cell into a lie.
+* The wrapper behaviour must be testable without a working container runtime, so
+  that selection logic can be covered on any runner. Stub binaries on a reduced
+  `PATH` are what make that possible.
+* Gate reach is part of the contract: a job whose glob misses a file it claims to
+  cover is a gap even while everything is green.
+
+== Notes
+
+The two system use cases pull in opposite directions and both are legitimate.
+UC-006 wants the container to be self-sufficient; this one wants the wrappers to
+be verifiable. The seam between them is that the wrappers may add convenience but
+must never add capability the container lacks.
