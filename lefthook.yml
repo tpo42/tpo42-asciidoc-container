@@ -252,7 +252,7 @@ pre-commit:
     # much stricter this gate should be (--verbose, --failure-level INFO) is a separate
     # question from getting it wired.
     #
-    # CONTAINER_TAG is pinned rather than left to git describe. The derived tag carries a
+    # ADOC_VERSION is pinned rather than left to git describe. The derived tag carries a
     # -dirty suffix whenever the working tree differs from HEAD, which is true inside a
     # pre-commit hook and false a second later — the gate would need one image per state
     # and break on whichever it was not built for. A fixed tag mirrors the mini fleet's
@@ -261,7 +261,7 @@ pre-commit:
       tags: [domain, asciidoc]
       glob: "*.adoc"
       env:
-        CONTAINER_TAG: local
+        ADOC_VERSION: local
       run: "{adoc} validate -i 'adr/*.adoc' -i 'req/*.adoc' --strict"
 
 

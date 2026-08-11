@@ -76,7 +76,7 @@ jobs:
       # find it.
       - name: Validate ADRs
         env:
-          CONTAINER_IMAGE: ${{ env.TEST_TAG }}
+          ADOC_IMAGE: ${{ env.TEST_TAG }}
         run: |
           _ADCW_CONTAINER_RUNNER_BIN="$(command -v docker)" \
             ./bin/adcw validate --strict -i 'adr/*.adoc'

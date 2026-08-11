@@ -13,23 +13,24 @@
 # Sourceable for tests: [[ "${BASH_SOURCE[0]}" == "$0" ]] guard at bottom.
 #
 # Environment variables (all optional):
-#   ADC_PROJECT_HOME — Path to tpo42-asciidoc-container checkout (contributor)
-#   ADOC_COMPOSE     — Path to docker-compose.yml (alternative to -f)
-#   ADOC_SERVICE     — Service name in compose file (auto-detected from image)
-#   ADOC_WORKSPACE   — Workspace folder for devcontainer (default: .)
-#   CONTAINER_TAG    — Explicit override for container tag
-#   CONTAINER_IMAGE  — Explicit override for full image reference
+#   ADOC_PROJECT_HOME — Path to tpo42-asciidoc-container checkout (contributor)
+#   ADOC_COMPOSE      — Path to docker-compose.yml (alternative to -f)
+#   ADOC_SERVICE      — Service name in compose file (auto-detected from image)
+#   ADOC_WORKSPACE    — Workspace folder for devcontainer (default: .)
+#   ADOC_VERSION      — Toolchain version to use (default: the released version)
+#   ADOC_REGISTRY     — Registry and namespace to pull from (default: ghcr.io/tpo42)
+#   ADOC_IMAGE        — Full image reference, overriding the three above together
 
 set -e
 set -u
 set -o pipefail
 
-# Resolve lib directory — ADC_PROJECT_HOME or relative to this script
-: "${ADC_PROJECT_HOME:=$(realpath "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")}"
-_ADCW_LIB_DIR="${ADC_PROJECT_HOME}/lib"
+# Resolve lib directory — ADOC_PROJECT_HOME or relative to this script
+: "${ADOC_PROJECT_HOME:=$(realpath "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")}"
+_ADCW_LIB_DIR="${ADOC_PROJECT_HOME}/lib"
 
 if [[ ! -f "${_ADCW_LIB_DIR}/adcw-common.bash" ]]; then
-    echo "Error: Cannot find lib/adcw-common.bash (ADC_PROJECT_HOME=${ADC_PROJECT_HOME})" >&2
+    echo "Error: Cannot find lib/adcw-common.bash (ADOC_PROJECT_HOME=${ADOC_PROJECT_HOME})" >&2
     exit 1
 fi
 
@@ -177,7 +178,7 @@ adcw() {
         cmd_prefix=("${_ADCW_CONTAINER_RUNNER_BIN}" run --rm "${interaction[@]}"
             "${identity[@]}"
             --volume "${PWD}:/workspace" --volume "${PWD}/build:/build"
-            "${CONTAINER_IMAGE}")
+            "${ADOC_IMAGE}")
     fi
 
     exec "${cmd_prefix[@]}" "${container_argv[@]}"
@@ -218,21 +219,19 @@ _adcw_setup_devcontainer() {
 
 _adcw_setup_spec_container() {
     _adcw_detect_runner run || return 1
-    _adcw_detect_tag || return 1
-
-    : "${CONTAINER_IMAGE:=tpo42/adoc:${CONTAINER_TAG}}"
+    _adcw_resolve_image adoc || return 1
 
     # Naming the engine, not only the image. Image stores are not shared between runtimes,
     # so "not found" has a second cause besides "never built": built by a different engine
     # and therefore invisible here. Nothing in the inspect result distinguishes the two,
     # and a reader who just watched adcbw succeed needs the distinction to make sense of
     # this at all. See ADR-009.
-    if ! "${_ADCW_CONTAINER_RUNNER_BIN}" image inspect "${CONTAINER_IMAGE}" >/dev/null 2>&1; then
-        echo "Error: Container ${CONTAINER_IMAGE} not found in the local image store of ${_ADCW_CONTAINER_RUNNER_BIN##*/}!" >&2
-        if [[ -n "${ADC_PROJECT_HOME:-}" ]]; then
+    if ! "${_ADCW_CONTAINER_RUNNER_BIN}" image inspect "${ADOC_IMAGE}" >/dev/null 2>&1; then
+        echo "Error: Container ${ADOC_IMAGE} not found in the local image store of ${_ADCW_CONTAINER_RUNNER_BIN##*/}!" >&2
+        if [[ -n "${ADOC_PROJECT_HOME:-}" ]]; then
             echo "" >&2
             echo "Build it first:" >&2
-            echo "  ${ADC_PROJECT_HOME}/bin/adcbw" >&2
+            echo "  ${ADOC_PROJECT_HOME}/bin/adcbw" >&2
             echo "" >&2
         fi
         return 1
@@ -388,12 +387,13 @@ Options:
   -h, --help  Show this help message
 
 Environment:
-  ADC_PROJECT_HOME Path to tpo42-asciidoc-container checkout (contributor)
+  ADOC_PROJECT_HOME Path to tpo42-asciidoc-container checkout (contributor)
   ADOC_COMPOSE     Path to docker-compose.yml
   ADOC_SERVICE     Service name in compose (auto-detected from image)
   ADOC_WORKSPACE   Workspace folder for devcontainer (default: .)
-  CONTAINER_TAG    Explicit container tag override
-  CONTAINER_IMAGE  Explicit full image reference override
+  ADOC_VERSION     Toolchain version (default: the released version)
+  ADOC_REGISTRY    Registry and namespace (default: ghcr.io/tpo42)
+  ADOC_IMAGE       Full image reference, overriding the three above
 
 Execution Priority:
   1. docker-compose.yml (via -f, ADOC_COMPOSE, or auto-detect)

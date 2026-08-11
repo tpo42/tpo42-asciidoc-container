@@ -18,9 +18,9 @@
 #     somewhere else passed every earlier version of this suite.
 #
 # Needs the delivered image:
-#   CONTAINER_TAG=local ./bin/adcbw
+#   ADOC_VERSION=local ./bin/adcbw
 # The mermaid render case additionally needs the variant image:
-#   CONTAINER_TAG=local ./bin/adcbw --with-mermaid
+#   ADOC_VERSION=local ./bin/adcbw --with-mermaid
 # Without it that one case is skipped locally. Set ADCW_TEST_REQUIRE_MERMAID=1 to turn
 # the skip into a failure — CI does, because a case that only ever skips is not a case.
 
@@ -32,11 +32,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 FIXTURES="test/fixtures/extract-diagrams"
 
-: "${CONTAINER_TAG:=local}"
-export CONTAINER_TAG
+: "${ADOC_VERSION:=local}"
+export ADOC_VERSION
 : "${ADCW_TEST_REQUIRE_MERMAID:=}"
 
-MERMAID_IMAGE="tpo42/adoc-with-mermaid:${CONTAINER_TAG}"
+# Asked of the library rather than rebuilt from the same parts. Reassembling
+# "${ADOC_REGISTRY:+…/}${name}:${ADOC_VERSION}" here would be a second place holding the
+# same rule, and the copy that drifts is always the one nobody runs — the suite would
+# then report against an image the wrapper never pulls.
+# shellcheck source=../lib/adcw-common.bash
+. "${REPO_ROOT}/lib/adcw-common.bash"
+export ADOC_REGISTRY
+
+resolve_image() {
+    local ADOC_IMAGE=""
+    _adcw_resolve_image "$1" || return 1
+    printf '%s' "${ADOC_IMAGE}"
+}
+
+ADOC_BASE_IMAGE="$(resolve_image adoc)"
+MERMAID_IMAGE="$(resolve_image adoc-with-mermaid)"
 
 cd "${REPO_ROOT}"
 
@@ -72,7 +87,7 @@ check() {
     printf '%-28s ' "${label}"
 
     output="$(
-        [[ -n "${image}" ]] && export CONTAINER_IMAGE="${image}"
+        [[ -n "${image}" ]] && export ADOC_IMAGE="${image}"
         ./bin/adcw extract-diagrams -i "${FIXTURES}/${fixture}.adoc" \
             -o "${OUT}/${label}" --format "${format}" 2>&1
     )" || rc=$?
@@ -122,7 +137,7 @@ check() {
     echo "PASS"
 }
 
-echo "=== extract-diagrams regression suite (image tpo42/adoc:${CONTAINER_TAG}) ==="
+echo "=== extract-diagrams regression suite (image ${ADOC_BASE_IMAGE}) ==="
 
 # The two delimiters, which is what this suite exists for.
 check listing-block listing-block source 0 'Diagrams found: 1' '1:*.plantuml'
@@ -156,16 +171,16 @@ check mermaid-unsupported mermaid rendered 1 'Cannot render mermaid.*adoc-with-m
 # Asking the wrapper rather than a runtime directly: `--help` reaches the image the same
 # way a real case does, so a missing image, a wrong tag and an unusable runtime all
 # answer here rather than halfway through the case below.
-if CONTAINER_IMAGE="${MERMAID_IMAGE}" ./bin/adcw extract-diagrams --help >/dev/null 2>&1; then
+if ADOC_IMAGE="${MERMAID_IMAGE}" ./bin/adcw extract-diagrams --help >/dev/null 2>&1; then
     check mermaid-render mermaid rendered 0 'Rendered: .*\.svg' '1:*.svg' "${MERMAID_IMAGE}"
 elif [[ -n "${ADCW_TEST_REQUIRE_MERMAID}" ]]; then
     printf '%-28s ' "mermaid-render"
     fail "${MERMAID_IMAGE} unavailable while ADCW_TEST_REQUIRE_MERMAID is set" \
-        "build it with: CONTAINER_TAG=${CONTAINER_TAG} ./bin/adcbw --with-mermaid"
+        "build it with: ADOC_VERSION=${ADOC_VERSION} ./bin/adcbw --with-mermaid"
 else
     printf '%-28s ' "mermaid-render"
     echo "SKIP: ${MERMAID_IMAGE} not built"
-    indent "CONTAINER_TAG=${CONTAINER_TAG} ./bin/adcbw --with-mermaid"
+    indent "ADOC_VERSION=${ADOC_VERSION} ./bin/adcbw --with-mermaid"
 fi
 
 echo

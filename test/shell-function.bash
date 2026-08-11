@@ -16,12 +16,12 @@ test_help() {
 
 test_no_context_error() {
     echo "Testing: No context produces an actionable error..."
-    unset ADC_PROJECT_HOME CONTAINER_TAG 2>/dev/null || true
+    unset ADOC_PROJECT_HOME ADOC_VERSION 2>/dev/null || true
     # A name no registry will ever carry, instead of relying on the ambient image being
     # absent: once bin/adcbw has run — which the adoc gate requires — the tag derived
     # from git *does* exist locally, and the assertion below would flip.
     local output
-    output="$(CONTAINER_IMAGE=tpo42/adoc:test-nonexistent adcw validate 2>&1)" || true
+    output="$(ADOC_IMAGE=tpo42/adoc:test-nonexistent adcw validate 2>&1)" || true
 
     # Which error is correct depends on the machine, and both are. A developer box and
     # the Linux runner have a runtime but not that image; a GitHub macOS runner has no
@@ -154,6 +154,58 @@ test_compose_discovery_honours_service_override() {
     assert_equals "compose.yaml" "${found}" "with ADOC_SERVICE set"
 
     rm -rf "${tmp}"
+    echo "  PASS"
+}
+
+# --- Image resolution (ADOC_VERSION / ADOC_REGISTRY / ADOC_IMAGE) ---
+
+# Resolve in a *freshly sourced* library, because the registry default is applied once
+# at source time (`: "${ADOC_REGISTRY=…}"`). Re-using this suite's already-sourced copy
+# would test the environment it happened to start in, not the resolution.
+#
+# ${1} is the image name; everything after it is VAR=value for the child's environment.
+_resolve_image_fresh() {
+    local name="$1"
+    shift
+    # Single quotes on purpose: $1, $2 and ADOC_IMAGE belong to the child bash, which
+    # is the process that sources the library under the controlled environment.
+    # shellcheck disable=SC2016
+    env -u ADOC_IMAGE -u ADOC_VERSION -u ADOC_REGISTRY -u ADOC_PROJECT_HOME "$@" \
+        bash -c 'set -u; . "$1"; _adcw_resolve_image "$2"; printf "%s" "${ADOC_IMAGE}"' \
+        bash "${REPO_ROOT}/lib/adcw-common.bash" "${name}"
+}
+
+test_image_resolution() {
+    echo "Testing: version, registry and image reference resolve as documented..."
+
+    assert_equals "ghcr.io/tpo42/adoc:1.2.3" \
+        "$(_resolve_image_fresh adoc ADOC_VERSION=1.2.3)" "default registry"
+
+    assert_equals "ghcr.io/tpo42/adoc-with-mermaid:1.2.3" \
+        "$(_resolve_image_fresh adoc-with-mermaid ADOC_VERSION=1.2.3)" "variant name"
+
+    # A mirror, or a house image beside the upstream one — the reason ADOC_REGISTRY
+    # exists at all (UC-004).
+    assert_equals "my.registry.internal/team/adoc:1.2.3" \
+        "$(_resolve_image_fresh adoc ADOC_VERSION=1.2.3 ADOC_REGISTRY=my.registry.internal/team)" \
+        "own registry"
+
+    # Explicitly empty means a bare local name, and it has to survive: the default was
+    # once assigned with `:=`, which fires on empty as well as unset, so this could not
+    # be expressed at all. CI names its test images this way.
+    assert_equals "adoc:ci-abc123" \
+        "$(_resolve_image_fresh adoc ADOC_VERSION=ci-abc123 ADOC_REGISTRY=)" \
+        "empty registry yields a bare name"
+
+    # The full override wins over both of the above.
+    assert_equals "example.org/other/thing:9" \
+        "$(_resolve_image_fresh adoc ADOC_VERSION=1.2.3 ADOC_REGISTRY=my.reg ADOC_IMAGE=example.org/other/thing:9)" \
+        "ADOC_IMAGE overrides"
+
+    # No version anywhere, and no checkout to derive one from.
+    assert_equals "ghcr.io/tpo42/adoc:latest" \
+        "$(_resolve_image_fresh adoc)" "fallback when nothing is set"
+
     echo "  PASS"
 }
 
@@ -454,7 +506,7 @@ EOF
 # produced. ${3} pins _ADCW_CONTAINER_RUNNER_BIN when non-empty; anything after it is
 # passed on to adcbw. All three are mandatory, so the caller reads as a sentence.
 #
-# CONTAINER_TAG short-circuits the git probe and ADC_PROJECT_HOME the realpath/dirname
+# ADOC_VERSION short-circuits the git probe and ADOC_PROJECT_HOME the realpath/dirname
 # one, so the stub PATH really only has to carry the runtimes plus `id`.
 _adcbw_invocation() {
     local dir="$1" log="$2" pinned="$3"
@@ -462,7 +514,7 @@ _adcbw_invocation() {
     : >"${log}"
     (
         PATH="${dir}"
-        export ADC_PROJECT_HOME="${REPO_ROOT}" CONTAINER_TAG=stub
+        export ADOC_PROJECT_HOME="${REPO_ROOT}" ADOC_VERSION=stub
         # A prefix assignment rather than an export: adcbw is a separate process and this
         # is the only channel there is between it and adcw, which is the point being
         # tested. The unset matters too — an earlier case leaves the variable resolved in
@@ -612,6 +664,7 @@ test_help
 test_no_context_error
 test_compose_flag_takes_a_path
 test_compose_service_detection
+test_image_resolution
 test_compose_discovery_order
 test_compose_discovery_ignores_foreign_file
 test_compose_discovery_honours_service_override

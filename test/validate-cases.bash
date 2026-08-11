@@ -11,7 +11,7 @@
 # surfaces, which is the point.
 #
 # Needs the delivered image. Build it with:
-#   CONTAINER_TAG=local ./bin/adcbw
+#   ADOC_VERSION=local ./bin/adcbw
 
 set -e
 set -u
@@ -21,8 +21,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 FIXTURES="test/fixtures/validate"
 
-: "${CONTAINER_TAG:=local}"
-export CONTAINER_TAG
+: "${ADOC_VERSION:=local}"
+export ADOC_VERSION
+
+# Asked of the library rather than rebuilt from the same parts. Reassembling
+# "${ADOC_REGISTRY:+…/}${name}:${ADOC_VERSION}" here would be a second place holding the
+# same rule, and the copy that drifts is always the one nobody runs — the suite would
+# then report against an image the wrapper never pulls.
+# shellcheck source=../lib/adcw-common.bash
+. "${REPO_ROOT}/lib/adcw-common.bash"
+export ADOC_REGISTRY
+
+resolve_image() {
+    local ADOC_IMAGE=""
+    _adcw_resolve_image "$1" || return 1
+    printf '%s' "${ADOC_IMAGE}"
+}
+
+ADOC_BASE_IMAGE="$(resolve_image adoc)"
 
 failures=0
 
@@ -54,7 +70,7 @@ check() {
     echo "PASS"
 }
 
-echo "=== validate regression suite (image tpo42/adoc:${CONTAINER_TAG}) ==="
+echo "=== validate regression suite (image ${ADOC_BASE_IMAGE}) ==="
 
 # The control. Without it a validator that fails on everything would look perfect.
 check clean 0 'All files validated successfully'
