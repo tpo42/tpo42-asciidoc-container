@@ -1,0 +1,96 @@
+language: "de-DE"
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  # Der Zähler sucht Docstrings und findet in Bash keine. Die Funktionen hier tragen
+  # ihre Begründung im Kommentar darüber; ein Format nachzurüsten, das nur eine
+  # Metrik befriedigt, verbessert nichts. "off" gequotet, sonst YAML-Boolean.
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+
+  path_instructions:
+    - path: "{bin/adcw,bin/adcbw,lib/**/*.bash,test/**/*.bash}"
+      instructions: |
+        Host-Shell. Läuft auf macOS gegen /bin/bash 3.2.57 — bash-4-Konstrukte
+        (`declare -A`, `${var^^}`, `mapfile`) überstehen `bash -n` und scheitern erst
+        zur Laufzeit. `set -e -u -o pipefail` ist Pflicht und bleibt.
+
+        Kommando-Präfixe sind Arrays, nie Strings. Ein Kommando durch einen String zu
+        schicken und mit `read -a` zurückzuspalten trennt an IFS und zerlegt jeden Pfad
+        mit Leerzeichen ("Docker Desktop") in zwei argv-Wörter.
+
+        Runtime-Auswahl folgt ADR-009: die benötigte Capability treibt die Suche, und
+        ein explizit gesetztes `_ADCW_CONTAINER_RUNNER_BIN` wird gemeldet statt still
+        durch eine andere Engine ersetzt. Eine `build`-Capability gibt es bewusst nicht.
+
+    - path: "container/resources/*.rb"
+      instructions: |
+        Kommandos des ausgelieferten Images. Der Exit-Code ist die Schnittstelle:
+        ein fehlgeschlagenes Rendern, ein fehlender Renderer oder eine unbrauchbare
+        Eingabe müssen ungleich 0 enden. Eine Warnung auf stdout bei Exit 0 ist der
+        Fehler, gegen den diese Toolchain überhaupt existiert.
+
+        Teilergebnisse aufräumen: PlantUML schreibt bei Syntaxfehlern ein Fehlerbild
+        und beendet sich mit 200 — die Datei darf nicht liegen bleiben.
+
+        `Kernel#warn` ist unter `RUBYOPT=-W0` ein No-Op. Das Containerfile setzt es
+        nicht mehr; wer es wieder einführt, macht sämtliche Fehlermeldungen unsichtbar.
+
+    - path: "test/**/*.bash"
+      instructions: |
+        Eine Assertion, die das aktuelle Verhalten festschreibt statt der Anforderung,
+        ist schlechter als keine — genau so war die Mermaid-Lücke drei Releases lang
+        durch einen grünen Test gedeckt.
+
+        Prüfe Exit-Code *und* Ausgabeverzeichnis, nicht nur stdout. Frage bei neuen
+        Fällen: Gegen welche mutierte Implementierung schlägt diese Assertion fehl?
+
+    - path: "adr/*.adoc"
+      instructions: |
+        Eine ADR argumentiert aus Prämissen (UC-*, CON-*, andere ADRs) und wiederholt
+        sie nicht. Landschaftswissen gehört nach req/con-*.adoc, die Ableitung hierher.
+        Erwartet: Frage zuerst, dann Entscheidung, dann Konsequenzen mit benannten
+        negativen Folgen.
+
+    - path: "req/*.adoc"
+      instructions: |
+        CON-* beschreibt Vorgefundenes, UC-* Akteursziele in Cockburn-Kurzform,
+        FR-* Anforderungen. In CON-001 gehören veränderliche Angaben — Versionen,
+        Zählwerte, Feature-Stände — ausschließlich in den Abschnitt "Dated
+        observations", mit Volatilität und Recheck-Bedingung. Nicht in den Fließtext.
+
+    - path: "{container/Containerfile,container/*.Containerfile}"
+      instructions: |
+        hadolint-sauber halten. Werkzeuge distro-first beziehen, gepinnte Binaries nur
+        wo das Distro-Paket fehlt. Entwicklerwerkzeuge gehören ins mini-QA-Image, nicht
+        ins ausgelieferte. `RUBYOPT=-W0` nicht wieder einführen.
+
+    - path: "lefthook.yml"
+      instructions: |
+        Invariante: keine Container-Referenz in dieser Datei. Jobs benennen Werkzeuge,
+        die {template}-Platzhalter entscheiden, woher sie kommen.
+
+        Formatierer laufen im Fix-Modus; `fail_on_changes: "always"` macht daraus das
+        Gate. Kein `stage_fixed` — die Korrektur soll gereviewt werden. Unbekannte
+        Schlüssel schluckt lefthook wortlos, Tippfehler melden sich also nie.
+
+    - path: ".github/workflows/**/*.yml"
+      instructions: |
+        Gepinnte Action-Versionen, minimale Permissions, Secret-Handling prüfen.
+        Beide Image-Varianten werden immer gebaut und getestet — ein übersprungener
+        Mermaid-Fall bedeutet, dass dieser Renderer nirgends läuft.
+
+chat:
+  auto_reply: true
