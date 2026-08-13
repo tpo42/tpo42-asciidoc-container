@@ -1,0 +1,179 @@
+= CON-002: Parallel Jobs in GitHub Actions
+:date: 2026-08-13
+:status: researched
+
+== Description
+
+ADCW builds and tests container images on GitHub-hosted runners it does not
+control. How work may be spread across those runners, and what may be carried
+back from them, is a given -- not a choice. This constraint records that
+mechanism as surveyed on 2026-08-13, so that decisions resting on it (ADR-011 and
+successors) argue from a stated basis rather than from assumption.
+
+As in CON-001, statements are either *structural* -- they follow from how the
+platform is built and age slowly -- or *dated*, describing a moving target. The
+dated ones are collected in <<assumptions>> with a recheck condition, so a stale
+figure invalidates one row rather than the argument around it.
+
+== Two axes, and they are independent
+
+Parallelism in a workflow exists at two levels, and conflating them is the
+mistake this section exists to prevent:
+
+[cols="1,2,2"]
+|===
+| Axis | Unit | Bounded by
+
+| *Across runners* -- `strategy.matrix`
+| one job per cell, each on its own machine
+| runner concurrency limits, and what a cell can be given to do independently
+
+| *Within a runner* -- the tool's own parallelism (`bats --jobs`, `make -j`)
+| one process per worker, sharing one machine
+| that machine's vCPUs, and whether the work is reentrant
+|===
+
+They compose. A matrix does not make in-runner parallelism redundant, and
+in-runner parallelism does not substitute for a matrix: the first buys machines,
+the second buys utilisation of one machine. A four-cell matrix of four-worker
+runs is sixteen-way parallel; neither axis alone gets there.
+
+== Fan-out: `strategy.matrix`
+
+Cells run concurrently by default. Two controls matter:
+
+* `fail-fast` (default `true`) cancels every queued and running cell as soon as
+  one fails. For a *diagnostic* matrix -- "which architecture broke?" -- this is
+  the wrong default: it hides the answer for every cell that had not finished.
+  `fail-fast: false` lets all cells report.
+* `max-parallel` caps how many cells run at once, for when the constraint is a
+  shared resource rather than the runner pool.
+
+A cell is only useful if its work is genuinely independent. Work that needs two
+artefacts present *together* cannot be split along the axis that separates them
+-- the axis has to be chosen from what the work requires, not from what the
+artefacts happen to be called.
+
+== Fan-in: `needs`, and what does not survive it
+
+`needs` waits for *all* cells of the needed job. The dependent job runs only when
+every cell succeeded; if any cell failed or was skipped, the dependent is skipped
+too, unless its own `if:` says otherwise (`always()`, `!cancelled()`). This is
+what makes "publish only when every test cell passed" a one-word property rather
+than a script.
+
+What crosses the job boundary is the sharp edge:
+
+[cols="1,3"]
+|===
+| Channel | Behaviour across matrix cells
+
+| `jobs.<id>.outputs`
+| *Last writer wins, and the order is not guaranteed.* GitHub does not merge
+  outputs per key, so a downstream job sees exactly one cell's value and cannot
+  tell which. Unusable for collecting per-cell results.
+
+| Artifacts
+| The supported channel. Since `upload-artifact@v4` artifacts are immutable and
+  names must be *unique*: two cells uploading the same name is an error, not a
+  merge. The idiom is a matrix-derived suffix, collected downstream by pattern.
+|===
+
+That asymmetry -- fan-out is cheap, fan-in is only cheap for *success or
+failure*, and expensive for *values* -- is the whole shape of the constraint.
+Anything a cell computes and a later job needs has to become a file.
+
+[[multiplatform]]
+== Multi-platform images: emulation or machines
+
+A multi-platform image is a manifest list pointing at one image per platform.
+There are two ways to produce one, and they differ in more than speed:
+
+* *One runner, QEMU.* `docker/setup-qemu-action` plus `platforms:
+  linux/amd64,linux/arm64` in a single `build-push-action` step. Simple, one job,
+  and the foreign architecture is *emulated* -- so a build may pass while the
+  same code on real hardware would not, and nothing in the workflow ever executed
+  the foreign image natively.
+* *One runner per platform, native.* Each cell builds and pushes *by digest*
+  (`push-by-digest=true`, `name-canonical=true`), writes its digest to an
+  artifact, and a merge job assembles the manifest list with
+  `docker buildx imagetools create`. No emulation, real hardware, and each
+  platform's image exists as a testable artefact before any tag points at it.
+
+The second is the pattern this constraint exists to enable, and it is exactly the
+fan-out/fan-in shape above: independent cells, a value (the digest) carried in an
+artifact because outputs cannot carry it, and a single collecting job.
+
+Docker now also ships a *reusable workflow* that performs this split
+automatically (`distribute: true`, mapping Linux Arm platforms to
+`ubuntu-24.04-arm`). It removes the hand-written matrix and merge job at the cost
+of a third-party workflow in the trust path -- a dependency decision, not a
+technical one.
+
+== Native arm64 runners
+
+Linux `arm64` GitHub-hosted runners are generally available and *free for public
+repositories*, under the labels `ubuntu-24.04-arm` and `ubuntu-22.04-arm`. They
+are 4 vCPU, running an image managed by Arm, LLC.
+
+This is what makes the native path above affordable here: without free arm64
+runners, QEMU is not a shortcut but the only option.
+
+== What this leaves a workflow
+
+Conditions, not choices. What ADCW decided in the face of them is ADR-011 for the
+fan-out and ADR-010 for the in-runner parallelism.
+
+* A cell can only be split along an axis whose values a test can be given *one at
+  a time*. A test that needs two of them present at once cannot use that axis.
+* "Everything passed" is expressible without a guard: `needs:` waits for every
+  cell and skips when any of them failed or was skipped.
+* A value that crosses a job boundary is a file or it is a race. Job outputs from
+  a matrix are last-writer-wins, and the order is not defined.
+* Whether a matrix reports the first failure or all of them is `fail-fast`, and
+  its default is to cancel the siblings.
+* Executing `arm64` requires an arm64 runner. Without one, an image can be built
+  for that architecture and published, but never run on it.
+
+[[assumptions]]
+== Dated observations
+
+[cols="2,1,2"]
+|===
+| Observation | As of | Recheck when
+
+| `ubuntu-24.04-arm` / `ubuntu-22.04-arm` are free for public repositories, 4 vCPU
+| 2025-08-07 (GA); private repositories since 2026-01-29
+| the billing page changes, or a run is charged unexpectedly
+
+| `upload-artifact@v4` requires unique names and immutable artifacts
+| v4, current at 2026-08-13
+| a v5 appears
+
+| Matrix job outputs are last-writer-wins
+| open platform behaviour, community discussion #17245 still open at 2026-08-13
+| GitHub ships per-cell outputs, which would remove the artifact detour
+
+| Docker's reusable multi-platform workflow (`distribute: true`)
+| documented at 2026-08-13
+| it is considered for adoption -- it is a supply-chain decision
+|===
+
+Structural, and not expected to move: the two axes being independent, `needs`
+waiting for all cells, `fail-fast` cancelling by default, and a manifest list
+being the only way to make one tag serve several architectures.
+
+== Sources
+
+* https://github.blog/changelog/2025-08-07-arm64-hosted-runners-for-public-repositories-are-now-generally-available/[arm64 hosted runners for public repositories are now generally available] -- GitHub Changelog
+* https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/[arm64 standard runners are now available in private repositories] -- GitHub Changelog
+* https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs[Using a matrix for your jobs] -- `fail-fast`, `max-parallel`
+* https://github.com/actions/upload-artifact[actions/upload-artifact] -- v4 uniqueness and immutability
+* https://github.com/orgs/community/discussions/17245[Jobs need a way to reference all outputs of matrix jobs] -- the outputs limitation
+* https://docs.docker.com/build/ci/github-actions/multi-platform/[Multi-platform image with GitHub Actions] -- Docker Docs, including the reusable workflow
+
+NOTE: The precise skip semantics of `needs` when an upstream cell fails are
+established behaviour but are documented least explicitly of everything above;
+the syntax reference states the dependency, not the outcome. Treat the row in
+<<assumptions>> as the place to correct this should a workflow ever behave
+otherwise.

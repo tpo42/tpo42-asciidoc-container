@@ -1,0 +1,195 @@
+= ADR-011: The CI Fan-Out Follows the Architecture, Not the Image
+:date: 2026-08-13
+:status: accepted
+:see-also: CON-002 (parallel jobs in GitHub Actions), ADR-008 (the Mermaid variant beside the toolchain), ADR-010 (BATS and in-runner parallelism)
+
+== The question
+
+`container-publish.yml` is one job. It builds both image variants, runs all three
+suites against them, and then pushes both variants for two architectures --
+strictly in sequence, on one runner.
+
+The obvious improvement is to fan it out. *Along which axis?* The workflow offers
+two that look symmetric -- image variant and architecture -- and they are not.
+
+== Premises
+
+* **CON-002** -- what a matrix cell may be given, what `needs` guarantees, and
+  why a value that crosses a job boundary has to be a file.
+* **CON-002, <<multiplatform>>** -- a multi-platform image is a manifest list,
+  built either under emulation on one runner or natively on one runner per
+  platform.
+* **ADR-008** -- the Mermaid variant is published *beside* the toolchain, not
+  inside it. Two images, one recipe, two stages.
+* **ADR-010** -- the suites are reentrant and CI already runs them with
+  `--jobs 4` inside a runner.
+
+== Context
+
+Two things are true of the workflow today, and only the second is about speed.
+
+=== `arm64` is published without ever being executed
+
+The builds that feed the test steps carry no `platforms:` key, so they build for
+the runner's own architecture -- `amd64`. The publishing steps build
+`linux/amd64,linux/arm64` through QEMU and push.
+
+No suite has ever run against `arm64`. It is emulated at build time, tagged, and
+shipped. Whatever the suites assert about the delivered toolchain, they assert it
+for one architecture and the manifest promises it for two.
+
+This is not a performance problem, and no amount of in-runner parallelism
+addresses it.
+
+=== One job, sequential, with emulation in the middle
+
+Both variants build, then three suites run, then two multi-platform pushes --
+each of which re-builds `arm64` under QEMU. Nothing overlaps, and the emulated
+half is the expensive half.
+
+=== The axis that looks obvious does not work
+
+Splitting by *image variant* is the intuitive reading of "one cell per artefact".
+It fails against a suite:
+
+`test/extract-diagrams-cases.bats` asserts two facts that need both images
+present *at once* -- that the base image refuses Mermaid **and names the variant
+that carries it**, and that the variant then renders it. A cell holding only one
+variant can run neither case honestly. Nor may they be skipped: CI sets
+`ADCW_TEST_REQUIRE_MERMAID=1` precisely because a case that only ever skips is
+not a case (ADR-010).
+
+The variant axis is therefore an axis of *building and publishing*, not of
+testing. Per CON-002, the axis is decided by what the work needs present, and
+this work needs both.
+
+== Decision
+
+**Fan out over architecture, keep both variants inside every cell, publish by
+digest from the cell that tested them, and let one collecting job assemble the
+manifest lists once every cell has passed.**
+
+=== The test matrix is `{amd64, arm64}`
+
+Each cell runs on its native runner -- `ubuntu-latest` and `ubuntu-24.04-arm` --
+builds *both* variants for that architecture, and runs all three suites. Two
+cells, no emulation, and `arm64` is exercised rather than assumed.
+
+`fail-fast: false`, because the question this matrix answers is *which*
+architecture broke. The default would cancel the other cell and withhold exactly
+that.
+
+Both variants in every cell is a deliberate duplication of build work. It is what
+the extract-diagrams suite requires, the layer cache absorbs most of it, and the
+alternative -- weakening the two cases that need both images -- trades a real
+assertion for a cheaper pipeline.
+
+=== Each cell tests what it published, pulled back by digest
+
+A cell builds *once*, pushes the result by digest
+(`push-by-digest=true`, `name-canonical=true`), and pulls it back by that same
+digest before any suite starts. A digest is content-addressed, so the bytes the
+suites exercise are provably the bytes the merge job will later tag.
+
+Two weaker arrangements were tried and rejected, and the difference between them
+is the whole point of this section.
+
+The first left the publishing path alone: the matrix would test natively and a
+later job would rebuild `linux/amd64,linux/arm64` under QEMU and push *that*. The
+emulated build would have stayed on the critical path, defeating the split -- and
+the workflow would have tested one artefact and shipped another while this ADR
+claimed the opposite.
+
+The second built twice in the same cell: once with `load: true` for the suites,
+then again with `push-by-digest` from the same cache. That is subtler and still
+wrong. A shared cache guarantees the same *layers*, not the same image: the two
+invocations use different exporters, and the pushed one carries provenance
+attestations the loaded one has no equivalent of. The digests differ, so "the
+published image is the tested image" was a claim the mechanism did not support.
+Pulling back by digest is what turns it from an assertion into a property.
+
+No tag is written by a cell. Nothing is reachable by name until the collecting
+job says so.
+
+A pull request cannot take this route, because a fork's `GITHUB_TOKEN` cannot
+write to the registry. There both images are built locally and tested as they
+were before. That divergence is acceptable precisely because nothing is published
+from a pull request: the identity guarantee has nothing to be true about, and the
+suites still run against a faithful build.
+
+=== `needs: test` is the gate, and the merge job is the only publisher
+
+`publish` depends on the whole matrix, so it runs only when every cell passed and
+is skipped when any did not -- the platform's default behaviour rather than a
+guard step (CON-002). It builds nothing: it assembles one manifest list per
+variant out of digests that already exist, with `docker buildx imagetools
+create`, and only then does a tag point at anything.
+
+The digests travel as an artifact rather than as job outputs, because matrix
+outputs are last-writer-wins and a downstream job could not tell which cell it
+was reading (CON-002). The filename is the value; the merge job only globs.
+
+QEMU is now absent from the workflow entirely.
+
+=== In-runner parallelism is unaffected
+
+`ADCW_TEST_JOBS` stays, and its value stays ADR-010's to set. The two axes are
+independent (CON-002): the matrix buys machines, `--jobs` buys utilisation of each
+one. Two cells of four workers is eight-way parallel; dropping either halves it.
+
+=== Hand-written rather than Docker's reusable workflow
+
+Docker ships a reusable workflow that performs this split automatically
+(`distribute: true`, CON-002 <<multiplatform>>). It was not adopted: it puts a
+third-party workflow in the trust path of the artefacts this repository
+publishes, and the hand-written form here is some sixty lines that this project
+can read, pin and reason about. That matches how the test tooling is vendored
+(ADR-010) rather than installed.
+
+Worth revisiting if the matrix grows platforms, where the generated form would
+start earning its dependency.
+
+== Consequences
+
+=== Positive
+
+* `arm64` is tested before it is published, closing a gap no amount of tuning
+  would have found.
+* A failure names the architecture. Today it names the workflow.
+* The two test cells run on separate machines, so wall clock is roughly the
+  slower cell rather than the sum.
+* QEMU leaves the workflow entirely, which also removes emulation as a suspect
+  when a build or a suite misbehaves.
+* The published image *is* the tested image, and by construction rather than by
+  argument: the suites run against an image pulled back by its digest, so the
+  manifest list points at bytes that were exercised, not at a rebuild that merely
+  shared a cache.
+* `needs:` expresses the publishing gate with no step that could be reordered
+  away, and the merge job builds nothing that could drift from what was tested.
+
+=== Negative
+
+* Both variants are built in both cells: four image builds where there were two.
+  Cache absorbs most of it, but a cache miss is paid twice.
+* `arm64` runners are free for public repositories today (CON-002,
+  <<assumptions>>). Should this repository ever become private, the cell becomes
+  a billed line item, and the decision to keep it is then a cost decision.
+* A cell that pushes its digests and is then outlived by a failing sibling leaves
+  untagged manifests in the registry. They are unreachable by name and
+  collectable, and that is the deliberate trade for never tagging something
+  untested -- but the registry does accumulate them.
+* The publishing path is now three jobs' worth of moving parts where it was a
+  sequence of steps: a digest that must reach an artifact, an artifact that must
+  reach the merge job, and a `DOCKER_METADATA_OUTPUT_JSON` that is overwritten by
+  the second `metadata-action` and therefore constrains step order.
+* Pull requests and pushes take different routes through the same job -- built
+  locally there, pushed and pulled back here. Two paths is exactly the divergence
+  this repository keeps removing elsewhere, and it is tolerated only because the
+  registry is closed to a fork's token and nothing is published from a pull
+  request either way.
+* A cell now waits for a registry round trip before its first suite runs. The
+  pull is cached layers over the network to the same host that just wrote them,
+  so it is cheap -- but it is not free, and it is a dependency on the registry
+  being reachable for a job that could previously test offline.
+* The test cells now depend on a runner label that did not exist two years ago.
+  Nothing detects its removal except a workflow that suddenly cannot schedule.
