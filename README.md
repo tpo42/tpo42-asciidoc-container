@@ -272,7 +272,7 @@ tpo42-asciidoc-container/
 │       └── validate.sh
 ├── test/                        BATS suites (ADR-010)
 │   ├── run-suite.bash           Runs bats with the interpreter pinned to /bin/bash
-│   ├── shell-function.bats      Unit suite (sources bin/adcw, no container)
+│   ├── unit/                    Unit suites (source bin/adcw, no container)
 │   ├── validate-cases.bats      validate regression suite (needs the image)
 │   ├── extract-diagrams-cases.bats
 │   ├── bats/                    submodule: bats-core

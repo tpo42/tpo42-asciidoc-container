@@ -95,7 +95,7 @@ jobs:
           echo "Syntax OK"
 
       - name: Test adcw
-        run: test/run-suite.bash test/shell-function.bats
+        run: test/run-suite.bash test/unit
 
       # Through bin/adcw rather than a hand-written `docker run`. The wrapper knows to
       # run as the invoking user, and the image built here carries the default uid 1000

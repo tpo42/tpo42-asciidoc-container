@@ -23,10 +23,10 @@ lefthook run pre-push --all-files    # the two container regression suites
 The suites on their own, when one of them is what you are working on:
 
 ```bash
-test/run-suite.bash test/shell-function.bats          # sources bin/adcw — no container
+test/run-suite.bash test/unit                         # sources bin/adcw — no container
 test/run-suite.bash test/validate-cases.bats          # needs the image
 test/run-suite.bash test/extract-diagrams-cases.bats  # needs the image
-test/run-suite.bash --filter 'compose' test/shell-function.bats   # one case
+test/run-suite.bash --filter 'compose' test/unit      # one case
 ```
 
 Always through `test/run-suite.bash`, never `bats` directly: the wrapper pins the
@@ -51,7 +51,7 @@ runs everywhere.
 - **Multi-runtime support**: `bin/adcw` and `bin/adcbw` detect 5 container runtimes (container, nerdctl, finch, podman, docker). Changes must not break any of them.
 - **Container tag** is derived from `git describe` in the wrappers — `main`→`latest`, branches→slug, dirty→`-dirty` suffix.
 - **Command scripts** in `container/resources/` are installed to `/usr/local/bin/` inside the container. `extract-diagrams.rb` uses the Asciidoctor API directly.
-- **Tests** are BATS (ADR-010), vendored as submodules under `test/bats` and `test/test_helper/`. `shell-function.bats` is the fast unit suite — it sources `bin/adcw`, no container. `validate-cases.bats` and `extract-diagrams-cases.bats` drive `bin/adcw` against the built image. Domain helpers that BATS cannot supply live in `test/test_helper/adcw.bash`; keep it to image resolution, workspace paths and `assert_file_count`. Suites carry no shebang and are not executable — that is deliberate, see ADR-010. Cases are written to be reentrant (each owns its output directory) so `--jobs` stays one flag away; do not introduce shared writable state. Fixtures are named after the defect they carry, not after the suite that reads them.
+- **Tests** are BATS (ADR-010), vendored as submodules under `test/bats` and `test/test_helper/`. `test/unit/*.bats` is the fast unit suite — it sources `bin/adcw`, no container, and is run as a directory so a new file needs no gate change. `validate-cases.bats` and `extract-diagrams-cases.bats` drive `bin/adcw` against the built image. Domain helpers that BATS cannot supply live in `test/test_helper/adcw.bash`; keep it to image resolution, workspace paths and `assert_file_count`. Suites carry no shebang and are not executable — that is deliberate, see ADR-010. Cases are written to be reentrant (each owns its output directory) so `--jobs` stays one flag away; do not introduce shared writable state. Fixtures are named after the defect they carry, not after the suite that reads them.
 - **User mapping**: The Containerfile accepts `USER_UID`/`USER_GID`/`USER_NAME`/`USER_GROUP_NAME` build args for host permission alignment.
 - **ADRs** in `adr/*.adoc` document all significant decisions. New decisions should follow the same AsciiDoc ADR format.
 - **Commits** use conventional commit style (`feat:`, `fix:`, `docs:`). Always `--signoff`.

@@ -240,8 +240,8 @@ pre-commit:
     # pick a brewed 5.x instead. The wrapper is the seam that pins it (ADR-010).
     - name: unit-tests
       tags: [test, shell]
-      glob: "{bin/*,lib/**,test/*.bats,test/run-suite.bash,test/test_helper/adcw.bash}"
-      run: test/run-suite.bash test/shell-function.bats
+      glob: "{bin/*,lib/**,test/unit/*.bats,test/run-suite.bash,test/test_helper/*.bash}"
+      run: test/run-suite.bash test/unit
 
     # -------------------------------------------------------------- domain bucket
 
@@ -293,14 +293,14 @@ pre-push:
     # and a check that --no-diagrams really opts out.
     - name: validate-cases
       tags: [domain, asciidoc, test]
-      glob: "{container/resources/validate.sh,test/validate-cases.bats,test/run-suite.bash,test/test_helper/adcw.bash,test/fixtures/validate/*,bin/adcw}"
+      glob: "{container/resources/validate.sh,test/validate-cases.bats,test/run-suite.bash,test/test_helper/*.bash,test/fixtures/validate/*,bin/adcw}"
       run: test/run-suite.bash test/validate-cases.bats
 
     # Both block delimiters, the mixed document, the empty one, rendering through the
     # gem's PlantUML jar, and the type this image does not render.
     - name: extract-diagrams-cases
       tags: [domain, asciidoc, test]
-      glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bats,test/run-suite.bash,test/test_helper/adcw.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
+      glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bats,test/run-suite.bash,test/test_helper/*.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
       run: test/run-suite.bash test/extract-diagrams-cases.bats
 
 
