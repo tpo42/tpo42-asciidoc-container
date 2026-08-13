@@ -270,11 +270,13 @@ tpo42-asciidoc-container/
 │       ├── flatten.sh
 │       ├── mmdc-wrapper.sh
 │       └── validate.sh
-├── test/
-│   ├── shell-function.bash      Unit suite (sources bin/adcw, no container)
-│   ├── validate-cases.bash      validate regression suite (needs the image)
-│   ├── extract-diagrams-cases.bash
-│   ├── lib/harness.bash         Shared by the two container suites
+├── test/                        BATS suites (ADR-010)
+│   ├── run-suite.bash           Runs bats with the interpreter pinned to /bin/bash
+│   ├── shell-function.bats      Unit suite (sources bin/adcw, no container)
+│   ├── validate-cases.bats      validate regression suite (needs the image)
+│   ├── extract-diagrams-cases.bats
+│   ├── bats/                    submodule: bats-core
+│   ├── test_helper/             submodule: bats-support, bats-assert + adcw.bash
 │   └── fixtures/                One document per defect class
 ├── LICENSE.txt                  CC-BY-SA-4.0
 └── README.md

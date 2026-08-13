@@ -1,0 +1,193 @@
+= ADR-010: BATS Owns the Harness, a Shim Owns the Interpreter
+:date: 2026-08-13
+:status: accepted
+:see-also: ADR-009 (runtime selection, which the unit suite exercises), CON-001 (container runtime landscape)
+
+== The question
+
+The three suites had grown their own harness: assertions, per-test isolation,
+temp directories, pass/fail counting, reporting. All of it hand-written, and all
+of it a solved problem elsewhere.
+
+*Does a test framework replace it -- and if so, what does the repository give up
+to get one?*
+
+The second half is where the decision actually lives. The first half was never
+seriously in doubt.
+
+== Premises
+
+* **The unit suite sources `bin/adcw`.** Sourcing bypasses the `#!/bin/bash`
+  shebang: whichever shell sources the file is the shell that parses it. On macOS
+  a user always gets 3.2.57 through that shebang, so the suite is only honest
+  while it runs under the same interpreter.
+* **A bash 4 construct parses cleanly under `bash -n` on 3.2** and fails only when
+  the line executes. No static gate covers this; running the code is the only
+  thing that does.
+* **The two container suites do not have that property.** They shell out to
+  `./bin/adcw`, so the interpreter running them is irrelevant.
+* **ADR-007 -- ADCW offers options and never provides infrastructure**, which is
+  also how this repository treats its own tooling: nothing may be assumed present
+  on a contributor's host that the repository has not brought along.
+
+== Context
+
+What the hand-written harness had accumulated, measured rather than estimated:
+
+* Two container suites carrying a byte-identical prologue -- image resolution,
+  `indent`, the failure counter, the tally -- including the comment arguing that
+  the image rule must not live in two places. Only one of them had grown a `fail`
+  helper, so the failure reporting had already diverged.
+* Eleven open-coded failure blocks in the unit suite, each with its own wording
+  for the same event.
+* Seventeen `mktemp -d`/`rm -rf` pairs whose cleanup sat after the assertions --
+  and the assertions `exit 1`, so every *failing* run leaked its directory.
+* A hand-written list of case names requiring two edits per case, the second of
+  which failed silently: an unregistered case never ran, and the suite still
+  reported success.
+* Per-helper subshells re-establishing isolation one at a time, with a comment
+  recording that the suite "has been bitten by before".
+
+That last item is the argument in miniature. Isolation between cases is not a
+domain problem; it is a harness problem, and the harness had learned it the
+expensive way. The same is true of the temp-directory leak, which survived
+several releases unnoticed.
+
+=== What a framework does not replace
+
+Roughly 10% of the test tree is harness. The rest is fixtures and *rationale* --
+the paragraph above each case recording the defect it was written for. None of
+that is NIH and none of it goes away. A migration justified by "fewer
+self-written lines" would disappoint; one justified by "fewer self-repeated
+mistakes" does not.
+
+== Decision
+
+**bats-core, vendored as git submodules, invoked exclusively through
+`test/run-suite.bash`.**
+
+=== Submodules rather than an installed tool
+
+`test/bats` (bats-core v1.14.0), `test/test_helper/bats-support` (v0.3.0) and
+`test/test_helper/bats-assert` (v2.2.4), each pinned to a release tag.
+
+The alternative -- `brew install bats-core`, matching how the macOS CI job already
+obtains shellcheck and shfmt -- was rejected because the version under test would
+then be whatever the contributor's package manager last shipped. A submodule
+pins an exact commit, needs no host package manager, and travels with the
+checkout. The cost is that `git clone` without `--recursive` yields a repository
+whose gates cannot run; `test/run-suite.bash` therefore refuses with the exact
+command to fix it rather than with a missing-directory error, and every workflow
+that runs a suite checks out with `submodules: recursive`.
+
+=== The shim is the load-bearing part
+
+`bats` and every one of its helpers carry `#!/usr/bin/env bash`, so they run under
+the *first* bash on `PATH` -- a brewed 5.x on a good many macOS boxes, and on the
+GitHub macOS runner. Combined with the first premise, that would silently move
+the unit suite onto an interpreter no user of the wrapper has, and the gate would
+go green on code that breaks for every macOS user.
+
+`test/run-suite.bash` builds a throwaway directory containing `bash ->
+/bin/bash`, prepends it to `PATH`, and runs bats from there. `env bash` then
+resolves to the system bash throughout the bats process tree. Verified rather
+than assumed: `BASH_VERSINFO[0]` reports `3` inside a test on this machine.
+
+One wrapper for local runs and for CI, because two spellings of the same suite is
+the class of divergence this repository has already had to remove once.
+
+The suites carry no shebang and are not executable, deliberately.
+`#!/usr/bin/env bats` would need bats on `PATH`, which this repository does not
+install -- and if a contributor happened to have one, `./test/foo.bats` would run
+under the wrong bash, which is the exact defect the shim exists to prevent. A
+file that cannot be run the wrong way is better than a comment asking nobody to.
+
+=== Reentrancy now, parallelism later
+
+Every case owns its output directory and shares nothing writable. In the
+extract-diagrams suite that meant moving from one run-level directory with
+per-case subdirectories to one directory per case, created in `setup` and removed
+in `teardown`.
+
+`--jobs` is *not* enabled. It requires GNU parallel, which is a host dependency
+nobody has asked for, and local runs are wanted sequential. The hardening is done
+anyway because retrofitting reentrancy into a suite that has quietly come to rely
+on shared state is the expensive half; turning the flag on afterwards is a flag.
+Verified by running the same suite twice concurrently -- 8/8 in both, no
+leftovers -- since `--jobs` itself cannot be exercised here.
+
+=== What moved into the framework, and what stayed out
+
+Into bats and bats-assert: assertions, per-case process isolation, temp
+directories, skip handling, pass/fail counting, reporting.
+
+Left in `test/test_helper/adcw.bash`: image resolution asked of
+`lib/adcw-common.bash`, the workspace-relative scratch directory, and
+`assert_file_count`. That last one is domain knowledge rather than a missing
+bats-assert feature: "it produced something" is rarely the claim being made, and
+zero is a first-class expectation -- a renderer that writes a broken file where
+none was right must fail.
+
+Two hand-rolled mini-languages disappeared with the migration. The container
+suites had grown a `check` with negatable patterns and a `want_glob` DSL
+(`'*.svg'`, `'2:*.svg'`, `'!*.svg'`) because a single positional slot had to carry
+three different assertions. `assert_output`, `refute_output` and
+`assert_file_count` say the same things by name.
+
+=== The suites keep their names and their shape
+
+A 1:1 migration: `shell-function.bats`, `validate-cases.bats`,
+`extract-diagrams-cases.bats`. Splitting the 21-case unit suite along its four
+existing section markers is a defensible next step and deliberately not taken
+here, so that this change is reviewable as what it is -- a harness swap, not a
+reorganisation.
+
+== Consequences
+
+=== Positive
+
+* Failures are TAP, so CI can annotate the failing file and line instead of
+  producing a wall of log text. This was the decisive argument, not line count.
+* Every case runs in its own process. Cross-case leakage is structurally
+  impossible rather than defended against by four helpers that had to learn it.
+* A failing case no longer hides the ones after it. The old unit suite was
+  fail-fast while the two container suites counted and continued; there is now one
+  behaviour.
+* `--filter` runs a single case without editing the file.
+* Cases are discovered. The list that had to be edited twice per case, and failed
+  silently the second time, is gone.
+* shellcheck parses `@test "name" { … }` as an ordinary function definition, so
+  the suites are linted like every other shell file rather than being a blind spot
+  the size of the test tree.
+* `--jobs` is one flag away, and the suites are already safe for it.
+
+=== Negative
+
+* **The unit suite went from 2.3 s to 8.0 s**, and it is the pre-commit gate.
+  Roughly 200 ms per case is framework floor: ~114 ms to `load` bats-support and
+  bats-assert in each test process, ~87 ms of bats process overhead. Measured, not
+  estimated -- 21 empty cases cost 2.1 s bare and 4.5 s with the helper loaded.
+  This is the real price of per-case process isolation and it is paid on every
+  commit that touches shell. `--jobs` would recover most of it, at the cost of the
+  dependency above.
+* Three submodules to keep current, and a clone without `--recursive` cannot run
+  its own gates until the contributor reads the error.
+* **A commit that adds or moves a submodule pointer cannot run the pre-commit
+  hook.** lefthook's `fail_on_changes` computes its changeset with
+  `git hash-object` over the staged paths, and a gitlink is not a hashable blob --
+  it aborts with "Unable to hash test/bats" before any job runs. Neither a
+  hook-level `exclude` nor any `fail_on_changes` value scopes it out. Such commits
+  therefore need `--no-verify`, which is why the vendoring is a commit of its own
+  carrying nothing a gate could have checked. Measured, and bounded: ordinary
+  commits and `lefthook run --all-files` -- the CI path -- are unaffected, because
+  the gitlinks are then unchanged rather than staged.
+* bats' sharp edges are now the repository's: `run` swallows the exit status, so a
+  bare command after it does not fail a test; `set -e` behaves surprisingly inside
+  `@test`; assertions inside helper functions do not abort the way they read.
+  Known eccentricities traded for unknown ones.
+* `env -u` must precede the assignments for BSD `env`, and a comment inside `$( )`
+  may not contain an apostrophe under bash 3.2. Neither is new, but the migration
+  met both, which is evidence that the 3.2 pinning above earns its keep.
+* The shim is a moving part between the developer and the test runner. It is small
+  and it fails loudly, but `bats test/foo.bats` typed directly will do the wrong
+  thing quietly on a machine with a brewed bash.
