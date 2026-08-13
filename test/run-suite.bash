@@ -9,11 +9,11 @@
 # and break for every macOS user, which is precisely the failure these suites exist to
 # catch. With it, `env bash` resolves to /bin/bash throughout the bats process tree.
 #
-# One spelling for local and CI, so the two cannot drift.
-#
-# Deliberately not `--jobs`: the suites are written to run concurrently — each case owns
-# its output directory and shares nothing writable — but turning it on costs a GNU
-# parallel dependency nobody has asked for yet. It is a flag away, not a rewrite away.
+# One spelling for local and CI, so the two cannot drift. Parallelism is the one thing
+# that differs between them, and it differs as a *value* rather than as a second
+# invocation: ADCW_TEST_JOBS turns it on, CI sets it, a local run leaves it unset and
+# stays sequential. The suites are written for it — each case owns its output directory
+# and shares nothing writable (ADR-010).
 
 set -e -u -o pipefail
 
@@ -39,9 +39,34 @@ if [[ ! -x /bin/bash ]]; then
     exit 1
 fi
 
+want_jobs="${ADCW_TEST_JOBS:-}"
+
+# An explicit --jobs on the command line wins: the variable is a default, not an override,
+# so a developer can still ask for parallelism on a box that has GNU parallel.
+for arg in "$@"; do
+    case "${arg}" in
+    -j | --jobs | --jobs=*) want_jobs="" ;;
+    esac
+done
+
+jobs_args=()
+if [[ -n "${want_jobs}" ]]; then
+    if ! command -v parallel >/dev/null 2>&1; then
+        echo "ADCW_TEST_JOBS=${want_jobs} needs GNU parallel, which is not installed." >&2
+        echo >&2
+        echo "  brew install parallel      # macOS" >&2
+        echo "  apt-get install parallel   # Debian/Ubuntu" >&2
+        echo >&2
+        echo "Unset ADCW_TEST_JOBS to run the suite sequentially instead." >&2
+        exit 1
+    fi
+    jobs_args=(--jobs "${want_jobs}")
+fi
+
 shim="$(mktemp -d)"
 trap 'rm -rf "${shim}"' EXIT
 ln -s /bin/bash "${shim}/bash"
 
 cd "${REPO_ROOT}"
-PATH="${shim}:${PATH}" "${SCRIPT_DIR}/bats/bin/bats" "$@"
+# bash 3.2 treats "${arr[@]}" on an empty array as unbound under `set -u`, hence the guard.
+PATH="${shim}:${PATH}" "${SCRIPT_DIR}/bats/bin/bats" ${jobs_args[@]+"${jobs_args[@]}"} "$@"

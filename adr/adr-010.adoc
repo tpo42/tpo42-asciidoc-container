@@ -109,12 +109,42 @@ extract-diagrams suite that meant moving from one run-level directory with
 per-case subdirectories to one directory per case, created in `setup` and removed
 in `teardown`.
 
-`--jobs` is *not* enabled. It requires GNU parallel, which is a host dependency
-nobody has asked for, and local runs are wanted sequential. The hardening is done
-anyway because retrofitting reentrancy into a suite that has quietly come to rely
-on shared state is the expensive half; turning the flag on afterwards is a flag.
-Verified by running the same suite twice concurrently -- 8/8 in both, no
-leftovers -- since `--jobs` itself cannot be exercised here.
+`--jobs` is enabled **by default only in CI**, through `ADCW_TEST_JOBS`, which
+`test/run-suite.bash` translates into the flag. A value rather than a second
+invocation, so `lefthook.yml` and the workflows keep one way of starting a suite
+and the platforms cannot drift apart; an explicit `--jobs` on the command line
+still wins, so a contributor who has GNU parallel can ask for it.
+
+Local runs stay sequential because GNU parallel is a dependency not worth
+imposing on a contributor's machine, and because the pre-commit gate is not where
+the time goes.
+
+The numbers, measured on a 16-thread machine against the delivered image:
+
+[cols="2,1,1,1"]
+|===
+| Suite | sequential | `--jobs 4` | `--jobs 8`
+
+| `test/unit` (27 cases) | 11.6 s | 10.1 s | 6.8 s
+| `validate-cases` (7) | 10.3 s | 6.5 s | 5.1 s
+| `extract-diagrams-cases` (8) | 13.6 s | 8.9 s | 7.6 s
+|===
+
+`--jobs 2` measured *slower* than sequential (17.6 s on the unit suite): GNU
+parallel's own start-up is not free, and two workers do not earn it back. The
+flag is worth having above roughly four.
+
+CI is set to 4 rather than to `nproc`. The container suites start one engine per
+case and a hosted runner shares four vCPUs with the daemon, so the local
+eight-worker figure does not transfer.
+
+Reliability was established before wiring it: 18 consecutive runs across all
+three suites at `--jobs 4` and `--jobs 8`, zero failures, no leftover scratch
+directories. That is evidence from one machine with headroom to spare, not from
+a four-vCPU runner under contention. **Should CI show intermittent failures that
+sequential runs do not reproduce, the answer is to unset `ADCW_TEST_JOBS` with a
+comment pointing at an issue, not to chase the flake** -- the parallel run is an
+optimisation, and the suites' job is to be believed.
 
 === What moved into the framework, and what stayed out
 
