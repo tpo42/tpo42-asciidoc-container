@@ -67,9 +67,13 @@ pre-commit:
     # lefthook ANDs its filters, so a MIME-or-glob union cannot be one job anyway.
     # Files carrying both a .bash suffix and a shebang are checked twice; that costs
     # milliseconds and is the safe direction to err in.
+    # .bats belongs here for the same reason .bash does: no shebang decides the dialect.
+    # shellcheck parses bats' `@test "name" { … }` as an ordinary function definition, so
+    # the suites are linted like everything else rather than being a blind spot the size
+    # of the test tree.
     - name: shellcheck-sourced
       tags: [mini, shell]
-      glob: "*.bash"
+      glob: "*.{bash,bats}"
       run: "{mini} shellcheck -x -s bash {staged_files}"
 
     # -i 4 matches the existing scripts and is the SSOT for shell style — .editorconfig
@@ -228,15 +232,16 @@ pre-commit:
     # container runtime it finds, what it reports when an image is missing. Running it
     # inside the mini container would test a machine nobody uses.
     #
-    # /bin/bash, not `bash`: the wrapper's shebang is /bin/bash, so that is the
-    # interpreter its users actually get — on macOS still 3.2.57, where every bash 4
-    # construct parses cleanly under `bash -n` and only fails when the code runs. A
-    # static gate cannot cover that; executing the suite under the platform's system
-    # bash is the only thing that does.
+    # test/run-suite.bash rather than `bats`: the wrapper's shebang is /bin/bash, so that
+    # is the interpreter its users actually get — on macOS still 3.2.57, where every
+    # bash 4 construct parses cleanly under `bash -n` and only fails when the code runs.
+    # A static gate cannot cover that; executing the suite under the platform's system
+    # bash is the only thing that does, and bats' own `#!/usr/bin/env bash` would quietly
+    # pick a brewed 5.x instead. The wrapper is the seam that pins it (ADR-010).
     - name: unit-tests
       tags: [test, shell]
-      glob: "{bin/*,lib/**,test/**}"
-      run: /bin/bash test/shell-function.bash
+      glob: "{bin/*,lib/**,test/*.bats,test/run-suite.bash,test/test_helper/adcw.bash}"
+      run: test/run-suite.bash test/shell-function.bats
 
     # -------------------------------------------------------------- domain bucket
 
@@ -288,15 +293,15 @@ pre-push:
     # and a check that --no-diagrams really opts out.
     - name: validate-cases
       tags: [domain, asciidoc, test]
-      glob: "{container/resources/validate.sh,test/validate-cases.bash,test/lib/*,test/fixtures/validate/*,bin/adcw}"
-      run: /bin/bash test/validate-cases.bash
+      glob: "{container/resources/validate.sh,test/validate-cases.bats,test/run-suite.bash,test/test_helper/adcw.bash,test/fixtures/validate/*,bin/adcw}"
+      run: test/run-suite.bash test/validate-cases.bats
 
     # Both block delimiters, the mixed document, the empty one, rendering through the
     # gem's PlantUML jar, and the type this image does not render.
     - name: extract-diagrams-cases
       tags: [domain, asciidoc, test]
-      glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bash,test/lib/*,test/fixtures/extract-diagrams/*,bin/adcw}"
-      run: /bin/bash test/extract-diagrams-cases.bash
+      glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bats,test/run-suite.bash,test/test_helper/adcw.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
+      run: test/run-suite.bash test/extract-diagrams-cases.bats
 
 
 # Advisory, not a gate — hence groups of their own rather than a job in pre-push. The

@@ -59,6 +59,10 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # The suites live behind git submodules (bats-core and its assertion
+          # helpers, ADR-010); without this they are absent and the gate fails
+          # with a missing-directory error rather than a test result.
+          submodules: recursive
 
       - name: Install lefthook
         run: |
@@ -201,6 +205,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The suites live behind git submodules (bats-core and its assertion
+          # helpers, ADR-010); without this they are absent and the gate fails
+          # with a missing-directory error rather than a test result.
+          submodules: recursive
 
       - name: Install lefthook
         run: |

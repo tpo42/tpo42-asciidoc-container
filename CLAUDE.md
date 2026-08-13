@@ -23,13 +23,22 @@ lefthook run pre-push --all-files    # the two container regression suites
 The suites on their own, when one of them is what you are working on:
 
 ```bash
-/bin/bash test/shell-function.bash          # sources bin/adcw, tests internals — no container
-/bin/bash test/validate-cases.bash          # validate regression suite (needs the image)
-/bin/bash test/extract-diagrams-cases.bash  # extract-diagrams regression suite (needs the image)
+test/run-suite.bash test/shell-function.bats          # sources bin/adcw — no container
+test/run-suite.bash test/validate-cases.bats          # needs the image
+test/run-suite.bash test/extract-diagrams-cases.bats  # needs the image
+test/run-suite.bash --filter 'compose' test/shell-function.bats   # one case
 ```
 
-`/bin/bash` on purpose: on macOS that is bash 3.2, the oldest interpreter the wrappers
-have to survive, and a bash 4 construct parses cleanly under `bash -n` there.
+Always through `test/run-suite.bash`, never `bats` directly: the wrapper pins the
+interpreter to `/bin/bash` — on macOS 3.2, the oldest one the wrappers have to survive,
+where a bash 4 construct parses cleanly under `bash -n` and fails only when it runs.
+bats' own `#!/usr/bin/env bash` would pick a brewed 5.x instead (ADR-010).
+
+The suites live behind git submodules. A fresh clone needs:
+
+```bash
+git submodule update --init --recursive
+```
 
 There is no Makefile. `.github/workflows/quality-gates.yml` runs the same lefthook jobs
 on Linux and macOS; `container-publish.yml` builds both variants per architecture, runs the container
@@ -38,11 +47,11 @@ runs everywhere.
 
 ## Key Conventions
 
-- **Shell scripts** use `set -e -u -o pipefail`. Preserve this in all scripts.
+- **Executable shell scripts** use `set -e -u -o pipefail`. Preserve this in all of them. *Sourced* files must not: shell options set there mutate the calling shell, and under BATS that changes the semantics of every test that loads them. `lib/adcw-common.bash`, `lib/completions/adcw.bash` and everything under `test/test_helper/` therefore carry none.
 - **Multi-runtime support**: `bin/adcw` and `bin/adcbw` detect 5 container runtimes (container, nerdctl, finch, podman, docker). Changes must not break any of them.
 - **Container tag** is derived from `git describe` in the wrappers — `main`→`latest`, branches→slug, dirty→`-dirty` suffix.
 - **Command scripts** in `container/resources/` are installed to `/usr/local/bin/` inside the container. `extract-diagrams.rb` uses the Asciidoctor API directly.
-- **Tests** live in `test/`. `shell-function.bash` is the fast unit suite — it sources `bin/adcw` and runs every case in its own subshell, discovered by name, no container. `validate-cases.bash` and `extract-diagrams-cases.bash` drive `bin/adcw` against the built image and share `test/lib/harness.bash`. Fixtures are named after the defect they carry, not after the suite that reads them.
+- **Tests** are BATS (ADR-010), vendored as submodules under `test/bats` and `test/test_helper/`. `shell-function.bats` is the fast unit suite — it sources `bin/adcw`, no container. `validate-cases.bats` and `extract-diagrams-cases.bats` drive `bin/adcw` against the built image. Domain helpers that BATS cannot supply live in `test/test_helper/adcw.bash`; keep it to image resolution, workspace paths and `assert_file_count`. Suites carry no shebang and are not executable — that is deliberate, see ADR-010. Cases are written to be reentrant (each owns its output directory) so `--jobs` stays one flag away; do not introduce shared writable state. Fixtures are named after the defect they carry, not after the suite that reads them.
 - **User mapping**: The Containerfile accepts `USER_UID`/`USER_GID`/`USER_NAME`/`USER_GROUP_NAME` build args for host permission alignment.
 - **ADRs** in `adr/*.adoc` document all significant decisions. New decisions should follow the same AsciiDoc ADR format.
 - **Commits** use conventional commit style (`feat:`, `fix:`, `docs:`). Always `--signoff`.
