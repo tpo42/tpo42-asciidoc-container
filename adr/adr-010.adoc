@@ -134,13 +134,29 @@ suites had grown a `check` with negatable patterns and a `want_glob` DSL
 three different assertions. `assert_output`, `refute_output` and
 `assert_file_count` say the same things by name.
 
-=== The suites keep their names and their shape
+=== The unit suite is a directory, discovered rather than listed
 
-A 1:1 migration: `shell-function.bats`, `validate-cases.bats`,
-`extract-diagrams-cases.bats`. Splitting the 21-case unit suite along its four
-existing section markers is a defensible next step and deliberately not taken
-here, so that this change is reviewable as what it is -- a harness swap, not a
-reorganisation.
+The migration itself was 1:1, so that it was reviewable as a harness swap rather
+than a reorganisation. The split followed as a separate change: `test/unit/`
+holds `cli-and-compose.bats`, `image-resolution.bats`, `runtime-selection.bats`
+and `build-invocation.bats`, one per section marker the single file had grown.
+
+A directory rather than four filenames, because the gate runs
+`test/run-suite.bash test/unit` and therefore picks up a new file without an
+edit elsewhere. The alternative -- naming each file in `lefthook.yml` and in the
+workflow -- would reintroduce at the file level exactly the failure this
+migration removed at the case level: a suite added but not registered, running
+nowhere while the gate reports success.
+
+The two container suites stay as named files at `test/`. Each has its own trigger
+glob and its own job, so they are named individually regardless, and a directory
+would buy nothing.
+
+Splitting also made the case count honest: 21 became 27, because a single case
+asserting six image-resolution rules and one asserting five properties of the
+build invocation were each carrying more than one claim. Under a harness that
+reports per case, one assertion failing no longer hides what else was being
+checked in the same block.
 
 == Consequences
 

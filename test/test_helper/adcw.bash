@@ -4,10 +4,14 @@
 # comes from bats-assert and bats-core. What is left here is domain knowledge, and that
 # is the only thing this file is allowed to grow.
 
-load 'test_helper/bats-support/load'
-load 'test_helper/bats-assert/load'
+# Everything is anchored on this file rather than on BATS_TEST_DIRNAME, so a suite may
+# sit at any depth under test/ — test/*.bats and test/unit/*.bats get the same answer.
+_ADCW_HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
+load "${_ADCW_HELPER_DIR}/bats-support/load"
+load "${_ADCW_HELPER_DIR}/bats-assert/load"
+
+REPO_ROOT="$(cd "${_ADCW_HELPER_DIR}/../.." && pwd)"
 
 : "${ADOC_VERSION:=local}"
 export ADOC_VERSION
