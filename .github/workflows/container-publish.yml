@@ -40,11 +40,23 @@ jobs:
       github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
 
+    # ADCW_TEST_JOBS turns on parallel bats execution (ADR-010). Set here and nowhere
+    # locally: the suites are reentrant by construction, but GNU parallel is not a
+    # dependency worth imposing on a contributor's machine. 4 rather than nproc — the
+    # container suites start one engine per case, and a hosted runner shares four vCPUs
+    # with the daemon.
+    env:
+      ADCW_TEST_JOBS: "4"
+
     permissions:
       contents: read
       packages: write
 
     steps:
+      # bats needs GNU parallel for --jobs; see ADCW_TEST_JOBS above.
+      - name: Install GNU parallel
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq parallel
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:

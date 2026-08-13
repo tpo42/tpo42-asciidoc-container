@@ -52,6 +52,15 @@ env:
 jobs:
   gates:
     runs-on: ubuntu-latest
+
+    # ADCW_TEST_JOBS turns on parallel bats execution (ADR-010). Set here and nowhere
+    # locally: the suites are reentrant by construction, but GNU parallel is not a
+    # dependency worth imposing on a contributor's machine. 4 rather than nproc — the
+    # container suites start one engine per case, and a hosted runner shares four vCPUs
+    # with the daemon.
+    env:
+      ADCW_TEST_JOBS: "4"
+
     steps:
       # The pull-request head, not the synthetic merge commit: the range checks below
       # report on commits an author actually wrote and can amend.
@@ -59,6 +68,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Every step below runs repository code — lefthook hooks, BATS suites, container
+          # builds. Without this, actions/checkout leaves the token in .git/config where
+          # any of them could read it. Nothing here needs write access to git; the
+          # registry login is separate and explicit.
+          #
+          # The `git fetch origin` further down stays anonymous, which this repository
+          # being public makes sufficient — it would need an explicit token if it ever
+          # turned private.
+          persist-credentials: false
           # The suites live behind git submodules (bats-core and its assertion
           # helpers, ADR-010); without this they are absent and the gate fails
           # with a missing-directory error rather than a test result.
@@ -96,6 +114,10 @@ jobs:
           for r in container nerdctl finch podman docker; do
             printf '%-10s %s\n' "${r}" "$(command -v "${r}" || echo '—')"
           done
+
+      # bats needs GNU parallel for --jobs; see ADCW_TEST_JOBS at the job level.
+      - name: Install GNU parallel
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq parallel
 
       # Everything that does not need the delivered image. {staged_files} is empty on a
       # runner, hence --all-files.
@@ -203,9 +225,23 @@ jobs:
 
   host-gates:
     runs-on: macos-latest
+
+    # ADCW_TEST_JOBS turns on parallel bats execution (ADR-010). Set here and nowhere
+    # locally: the suites are reentrant by construction, but GNU parallel is not a
+    # dependency worth imposing on a contributor's machine. 4 rather than nproc — the
+    # container suites start one engine per case, and a hosted runner shares four vCPUs
+    # with the daemon.
+    env:
+      ADCW_TEST_JOBS: "4"
+
     steps:
       - uses: actions/checkout@v7
         with:
+          # Every step below runs repository code — lefthook hooks, BATS suites, container
+          # builds. Without this, actions/checkout leaves the token in .git/config where
+          # any of them could read it. Nothing here needs write access to git; the
+          # registry login is separate and explicit.
+          persist-credentials: false
           # The suites live behind git submodules (bats-core and its assertion
           # helpers, ADR-010); without this they are absent and the gate fails
           # with a missing-directory error rather than a test result.
@@ -225,11 +261,25 @@ jobs:
       # which is the path lefthook.yml documents for exactly this case. zsh ships with
       # macOS; only these two are missing.
       - name: Install the shell tools
+        # The runner image carries taps this repository never installs from, and Homebrew
+        # now requires whole-tap trust and warns about each untrusted one. The warning is
+        # irrelevant to us — everything below comes from homebrew/core — but it lands as
+        # an annotation on a green run, and annotations nobody needs are how the ones that
+        # matter stop being read.
+        #
+        # Dropped rather than muted with HOMEBREW_NO_REQUIRE_TAP_TRUST, which brew itself
+        # calls not recommended and slates for removal: a tap we do not consume is better
+        # gone than silenced, and the check stays in force for anything we ever do consume.
+        # Named explicitly rather than untapping everything, so a tap appearing in a future
+        # image is still reported instead of quietly disappearing.
+        #
         # Unpinned on purpose, and the one place that is true: container/mini.Containerfile
         # pins these so a developer's own loop is reproducible, while brew here floats and
         # meets new checks first. A finding that appears only in this job is therefore
         # expected — it is the early-warning lane, not a broken gate.
-        run: brew install shellcheck shfmt
+        run: |
+          brew untap aws/tap 2>/dev/null || true
+          brew install shellcheck shfmt parallel
 
       - name: Record the interpreter under test
         run: /bin/bash --version | head -1
