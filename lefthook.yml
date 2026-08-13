@@ -298,6 +298,73 @@ pre-push:
       glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
       run: /bin/bash test/extract-diagrams-cases.bash
 
+
+# Advisory, not a gate — hence groups of their own rather than a job in pre-push. The
+# review is not deterministic: same input, a finding one time and none the next. As a
+# gate it would be the reason --no-verify becomes a habit, taking the regression suites
+# above down with it. Never attached automatically; whoever wants it, calls it.
+#
+# No template: claude runs on the host, like git, /bin/bash and the unit tests.
+# Dispatching it into the mini container would mean carrying the login in there.
+#
+# No explicit ref range: /code-review defaults to the commits ahead of the upstream *and*
+# the unstaged worktree. That is the right scope for the moment before a commit, where
+# the correction is still an --amend rather than a fixup. Before a push the same scope is
+# a superset — which does no harm on an advisory run.
+#
+# Groups named after the moment they suit, rather than one matrix. What the levels and
+# models actually do, read out of the CLI on 2026-08-13, derivation in issues/:
+#
+# /code-review pins no model of its own — finders and verifiers inherit the session
+# model, so --model is the only lever. The prompt cell is then chosen by model family ×
+# level, and not every family has a measured cell of its own; the rest fall back to a
+# generic full fan-out of 8 finder angles x 6 candidates. That fallback is what let one
+# run burn a whole token window in ten minutes without delivering a result.
+#
+# medium is tuned for precision ("every finding one a maintainer would act on"), high for
+# recall. On opus both point at the same cell, so high is wasted there — more breadth
+# starts at xhigh.
+#
+# No `|| true` after claude: a missing login or a broken CLI should speak up. Only the
+# absence of the tool itself is a legitimate reason to stay quiet — CI and foreign clones
+# have no claude and must not fail over it.
+
+# before the commit: fast and precise, few false alarms
+review:
+  jobs:
+    - name: claude-review
+      tags: [review]
+      skip: &no-claude
+        - run: "! command -v claude >/dev/null 2>&1"
+      run: claude --model sonnet -p '/code-review medium'
+
+# before the push: same level, the stronger model
+review-deep:
+  jobs:
+    - name: claude-review
+      tags: [review]
+      skip: *no-claude
+      run: claude --model opus -p '/code-review medium'
+
+# before a release or a merge: 10 finder angles plus a sweep, tuned for recall. This is
+# the run that costs a noticeable share of a token window.
+review-full:
+  jobs:
+    - name: claude-review
+      tags: [review]
+      skip: *no-claude
+      run: claude --model opus -p '/code-review xhigh'
+
+# A family without a measured cell, so this runs the generic fan-out described above. It
+# surfaced the heaviest finding of the calibration and is also the one that ran away on
+# cost — worth having, worth watching, hence its own group rather than a default.
+review-intens:
+  jobs:
+    - name: claude-review
+      tags: [review]
+      skip: *no-claude
+      run: claude --model fable -p '/code-review medium'
+
 commit-msg:
   jobs:
     - name: gitlint
