@@ -14,12 +14,14 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # Derived from the owner, not hardcoded. Upstream that is tpo42/adoc, unchanged. In a
-  # fork it is the contributor's own namespace — which is the point: roughly all
+  # IMAGE_NAME and MERMAID_IMAGE_NAME are not set here. They are derived from the owner in
+  # the first step of every job that needs them, because that derivation has to lowercase
+  # the owner and workflow expressions cannot — see "Derive the image names GHCR accepts".
+  #
+  # Derived from the owner rather than hardcoded: upstream that is tpo42/adoc, unchanged,
+  # and in a fork it is the contributor's own namespace — which is the point. Roughly all
   # contributions arrive as forks, only the organisation can push to tpo42, and a fork's
   # build should land somewhere its author can actually use it.
-  IMAGE_NAME: ${{ github.repository_owner }}/adoc
-  MERMAID_IMAGE_NAME: ${{ github.repository_owner }}/adoc-with-mermaid
   # The two test images, named so that the wrappers resolve them from their own
   # variables: an empty ADOC_REGISTRY yields the bare local name, and ADOC_VERSION
   # supplies the tag. Nothing has to pass an explicit ADOC_IMAGE.
@@ -29,7 +31,14 @@ env:
   ADOC_VERSION: ci-${{ github.sha }}
 
 jobs:
-  build:
+  # Two cells, one per architecture, each on its own native runner. The axis is
+  # architecture and not image variant, because test/extract-diagrams-cases.bats asserts
+  # that the base image refuses Mermaid *and names the variant that carries it*, and that
+  # the variant then renders it — both images have to be present at once, so the variant
+  # axis is one of building and publishing, not of testing (ADR-011).
+  #
+  # There is no `ubuntu-latest-arm`; the arm label names its release explicitly.
+  test:
     # A branch in this repository is already built by its push, so a pull request opened
     # from one would run this workflow a second time over the same commit — twice the
     # runner minutes and two rows in the checks list saying the same thing. A pull
@@ -38,21 +47,52 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ubuntu-latest
+
+    strategy:
+      # The question this matrix answers is *which* architecture broke. Cancelling the
+      # other cell on the first failure withholds exactly that (CON-002).
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
 
     # ADCW_TEST_JOBS turns on parallel bats execution (ADR-010). Set here and nowhere
     # locally: the suites are reentrant by construction, but GNU parallel is not a
     # dependency worth imposing on a contributor's machine. 4 rather than nproc — the
     # container suites start one engine per case, and a hosted runner shares four vCPUs
-    # with the daemon.
+    # with the daemon. Independent of the matrix: that buys machines, this buys
+    # utilisation of each one (CON-002).
     env:
       ADCW_TEST_JOBS: "4"
 
     permissions:
       contents: read
+      # For the by-digest push at the end of a successful cell. Skipped on pull requests.
       packages: write
 
     steps:
+      # GHCR requires the path part of an image reference to be lowercase, and an owner
+      # name may carry capitals. Derived once into the job environment rather than at each
+      # use: `env.IMAGE_NAME` and `${IMAGE_NAME}` both read the corrected value from here
+      # on, so no call site has to remember the rule.
+      #
+      # metadata-action lowercases its own `images:` input, but the raw build outputs and
+      # the `docker pull` below do not — a mixed-case owner would reach them unchanged.
+      - name: Derive the image names GHCR accepts
+        run: |
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            printf 'IMAGE_NAME=%s/adoc\n' "${owner}"
+            printf 'MERMAID_IMAGE_NAME=%s/adoc-with-mermaid\n' "${owner}"
+          } >> "${GITHUB_ENV}"
+
       # bats needs GNU parallel for --jobs; see ADCW_TEST_JOBS above.
       - name: Install GNU parallel
         run: sudo apt-get update -qq && sudo apt-get install -y -qq parallel
@@ -61,20 +101,96 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # Every step below runs repository code — lefthook hooks, BATS suites, container
+          # builds. Without this, actions/checkout leaves the token in .git/config where
+          # any of them could read it. Nothing here needs write access to git; the
+          # registry login is separate and explicit.
+          persist-credentials: false
           # The suites live behind git submodules (bats-core and its assertion
           # helpers, ADR-010); without this they are absent and the gate fails
           # with a missing-directory error rather than a test result.
           submodules: recursive
 
-      - name: Set up QEMU (for multi-platform builds)
-        uses: docker/setup-qemu-action@v4
-
+      # No QEMU anywhere in this job: the cell runs on its own architecture, which is the
+      # whole point of splitting it out.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # --- What the suites will run against ----------------------------------------
+      #
+      # On a push the image is built once, pushed by digest, and pulled back by that same
+      # digest before any suite starts. A digest is content-addressed, so what the suites
+      # exercise is provably the bytes the merge job will later tag — not a second build
+      # that merely reused the same cache and would carry a different digest for it.
+      #
+      # By digest means no tag is written here. Nothing is reachable by name until every
+      # cell has passed and the merge job says so. A cell that pushes and is then outlived
+      # by a failing sibling leaves an untagged manifest behind, which is garbage and
+      # collectable — the deliberate trade for never tagging something untested.
+      #
+      # A pull request cannot take that route: a fork's GITHUB_TOKEN cannot write to the
+      # registry. There both images are built locally and tested as before. Nothing is
+      # published from a pull request, so the identity the push route guarantees has
+      # nothing to be true about.
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # target is not optional: the Containerfile carries two stages, and without it
       # buildx builds the last one — the variant with a browser in it.
-      - name: Build image for testing
+      #
+      # The cache scope carries the architecture. Two cells writing mode=max to one scope
+      # would overwrite each other's manifest.
+      - name: Build and push the toolchain image by digest
+        id: push-adoc
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: container
+          file: container/Containerfile
+          target: adoc
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      # Both variants, always. The Mermaid renderer exists only here, so a suite that
+      # skips this image never exercises it — and the case that broke silently was
+      # exactly a renderer nobody ran. Published beside the toolchain, not inside it
+      # (ADR-008).
+      - name: Build and push the Mermaid variant by digest
+        id: push-mermaid
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: container
+          file: container/Containerfile
+          target: adoc-with-mermaid
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.MERMAID_IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      # Bound to the local names the wrapper resolves from ADOC_REGISTRY and ADOC_VERSION,
+      # so nothing downstream has to know the image arrived from a registry rather than
+      # from a local build.
+      - name: Pull both images back by digest
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST_ADOC: ${{ steps.push-adoc.outputs.digest }}
+          DIGEST_MERMAID: ${{ steps.push-mermaid.outputs.digest }}
+        run: |
+          docker pull "${REGISTRY}/${IMAGE_NAME}@${DIGEST_ADOC}"
+          docker tag "${REGISTRY}/${IMAGE_NAME}@${DIGEST_ADOC}" "${TEST_TAG}"
+          docker pull "${REGISTRY}/${MERMAID_IMAGE_NAME}@${DIGEST_MERMAID}"
+          docker tag "${REGISTRY}/${MERMAID_IMAGE_NAME}@${DIGEST_MERMAID}" "${TEST_TAG_MERMAID}"
+
+      - name: Build the toolchain image for testing
+        if: github.event_name == 'pull_request'
         uses: docker/build-push-action@v7
         with:
           context: container
@@ -82,13 +198,11 @@ jobs:
           target: adoc
           load: true
           tags: ${{ env.TEST_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
-      # Both variants, always. The Mermaid renderer exists only here, so a suite that
-      # skips this image never exercises it — and the case that broke silently was
-      # exactly a renderer nobody ran.
       - name: Build the Mermaid variant for testing
+        if: github.event_name == 'pull_request'
         uses: docker/build-push-action@v7
         with:
           context: container
@@ -96,8 +210,9 @@ jobs:
           target: adoc-with-mermaid
           load: true
           tags: ${{ env.TEST_TAG_MERMAID }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
 
       - name: Test script syntax
         run: |
@@ -109,19 +224,24 @@ jobs:
       - name: Test adcw
         run: test/run-suite.bash test/unit
 
+      # The runtime is pinned to docker because that is where buildx put the image; the
+      # wrapper would otherwise prefer podman, which has its own store and would not
+      # find it (ADR-009 — a pinned runtime is reported, never silently replaced).
+      #
+      # Resolved once and written to the job environment, rather than per step. Two
+      # lookups are two chances to answer differently: any later step that prepends to
+      # PATH — which setup actions routinely do — moves the second one. Every step below
+      # then inherits it without naming it.
+      - name: Pin the container runtime for the wrapper
+        run: printf '_ADCW_CONTAINER_RUNNER_BIN=%s\n' "$(command -v docker)" >> "${GITHUB_ENV}"
+
       # Through bin/adcw rather than a hand-written `docker run`. The wrapper knows to
       # run as the invoking user, and the image built here carries the default uid 1000
       # while the workspace belongs to the runner — validate renders diagrams into the
       # workspace, so without that it cannot write. Writing the invocation out a second
       # time here would be a second thing to keep in step with the wrapper.
-      #
-      # The runtime is pinned to docker because that is where buildx put the image; the
-      # wrapper would otherwise prefer podman, which has its own store and would not
-      # find it.
       - name: Validate ADRs
-        run: |
-          _ADCW_CONTAINER_RUNNER_BIN="$(command -v docker)" \
-            ./bin/adcw validate --strict -i 'adr/*.adoc'
+        run: ./bin/adcw validate --strict -i 'adr/*.adoc'
 
       # The suites that need an image, against the two just built. Mermaid is required
       # rather than skippable here: this is the one place both variants exist, so a skip
@@ -130,10 +250,80 @@ jobs:
         env:
           ADCW_TEST_REQUIRE_MERMAID: "1"
         run: |
-          _ADCW_CONTAINER_RUNNER_BIN="$(command -v docker)"
-          export _ADCW_CONTAINER_RUNNER_BIN
           test/run-suite.bash test/validate-cases.bats
           test/run-suite.bash test/extract-diagrams-cases.bats
+
+      # An artifact, not a job output: matrix outputs are last-writer-wins and the order
+      # is not guaranteed, so a downstream job would see one cell's digest and could not
+      # tell which (CON-002). The filename *is* the value; the merge job only globs.
+      - name: Record the digests
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST_ADOC: ${{ steps.push-adoc.outputs.digest }}
+          DIGEST_MERMAID: ${{ steps.push-mermaid.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests/adoc /tmp/digests/adoc-with-mermaid
+          touch "/tmp/digests/adoc/${DIGEST_ADOC#sha256:}"
+          touch "/tmp/digests/adoc-with-mermaid/${DIGEST_MERMAID#sha256:}"
+
+      - name: Carry the digests to the merge job
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          # Unique per cell: artifacts are immutable and two uploads under one name are
+          # an error rather than a merge (CON-002).
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # The single collecting job. `needs` waits for every cell and is skipped when any of
+  # them failed or was skipped, so "publish only what all architectures passed" is a
+  # property of the graph rather than a guard step (CON-002).
+  #
+  # This is where a tag first points at anything. Nothing is built here — the manifest
+  # lists are assembled from digests that already exist and were already tested.
+  publish:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # GHCR requires the path part of an image reference to be lowercase, and an owner
+      # name may carry capitals. Derived once into the job environment rather than at each
+      # use: `env.IMAGE_NAME` and `${IMAGE_NAME}` both read the corrected value from here
+      # on, so no call site has to remember the rule.
+      #
+      # metadata-action lowercases its own `images:` input, but the raw build outputs and
+      # the `docker pull` below do not — a mixed-case owner would reach them unchanged.
+      - name: Derive the image names GHCR accepts
+        run: |
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            printf 'IMAGE_NAME=%s/adoc\n' "${owner}"
+            printf 'MERMAID_IMAGE_NAME=%s/adoc-with-mermaid\n' "${owner}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Download the digests from every cell
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve version from tag
         id: version
@@ -150,16 +340,10 @@ jobs:
             echo "minor=${MAJOR}.${MINOR}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
+      # metadata-action exports DOCKER_METADATA_OUTPUT_JSON into the job environment, and
+      # the second invocation overwrites the first. Hence meta, create, meta, create —
+      # each manifest list is assembled while its own metadata is still current.
       - name: Extract metadata (tags, labels)
-        if: github.event_name != 'pull_request'
         id: meta
         uses: docker/metadata-action@v6
         with:
@@ -172,26 +356,23 @@ jobs:
             type=ref,event=branch
             type=sha
 
-      - name: Build and push (multi-platform)
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v7
-        with:
-          context: container
-          file: container/Containerfile
-          target: adoc
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create the manifest list for the toolchain image
+        working-directory: /tmp/digests/adoc
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          # Word splitting is the mechanism here, not an accident: both substitutions
+          # expand to several arguments.
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"${DOCKER_METADATA_OUTPUT_JSON}") \
+            $(printf "${IMAGE_REF}@sha256:%s " *)
 
       # The Mermaid variant, published beside the toolchain rather than inside it
-      # (ADR-008). Same stages, same cache, same tag scheme — a consumer picking
-      # ghcr.io/tpo42/adoc-with-mermaid:0 gets the same toolchain version they would
-      # get from ghcr.io/tpo42/adoc:0, plus a browser.
+      # (ADR-008). Same tag scheme — a consumer picking ghcr.io/tpo42/adoc-with-mermaid:0
+      # gets the same toolchain version they would get from ghcr.io/tpo42/adoc:0, plus a
+      # browser.
       - name: Extract metadata for the Mermaid variant
-        if: github.event_name != 'pull_request'
         id: meta-mermaid
         uses: docker/metadata-action@v6
         with:
@@ -204,16 +385,12 @@ jobs:
             type=ref,event=branch
             type=sha
 
-      - name: Build and push the Mermaid variant (multi-platform)
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v7
-        with:
-          context: container
-          file: container/Containerfile
-          target: adoc-with-mermaid
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-mermaid.outputs.tags }}
-          labels: ${{ steps.meta-mermaid.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create the manifest list for the Mermaid variant
+        working-directory: /tmp/digests/adoc-with-mermaid
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.MERMAID_IMAGE_NAME }}
+        run: |
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"${DOCKER_METADATA_OUTPUT_JSON}") \
+            $(printf "${IMAGE_REF}@sha256:%s " *)
