@@ -288,14 +288,14 @@ pre-push:
     # and a check that --no-diagrams really opts out.
     - name: validate-cases
       tags: [domain, asciidoc, test]
-      glob: "{container/resources/validate.sh,test/validate-cases.bash,test/fixtures/validate/*,bin/adcw}"
+      glob: "{container/resources/validate.sh,test/validate-cases.bash,test/lib/*,test/fixtures/validate/*,bin/adcw}"
       run: /bin/bash test/validate-cases.bash
 
     # Both block delimiters, the mixed document, the empty one, rendering through the
     # gem's PlantUML jar, and the type this image does not render.
     - name: extract-diagrams-cases
       tags: [domain, asciidoc, test]
-      glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
+      glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bash,test/lib/*,test/fixtures/extract-diagrams/*,bin/adcw}"
       run: /bin/bash test/extract-diagrams-cases.bash
 
 

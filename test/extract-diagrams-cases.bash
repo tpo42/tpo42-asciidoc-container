@@ -24,31 +24,16 @@
 # Without it that one case is skipped locally. Set ADCW_TEST_REQUIRE_MERMAID=1 to turn
 # the skip into a failure — CI does, because a case that only ever skips is not a case.
 
-set -e
-set -u
-set -o pipefail
+set -e -u -o pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# Image resolution, reporting and the tally live in the harness, shared with the validate
+# suite.
+# shellcheck source=lib/harness.bash
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/harness.bash"
+
 FIXTURES="test/fixtures/extract-diagrams"
 
-: "${ADOC_VERSION:=local}"
-export ADOC_VERSION
 : "${ADCW_TEST_REQUIRE_MERMAID:=}"
-
-# Asked of the library rather than rebuilt from the same parts. Reassembling
-# "${ADOC_REGISTRY:+…/}${name}:${ADOC_VERSION}" here would be a second place holding the
-# same rule, and the copy that drifts is always the one nobody runs — the suite would
-# then report against an image the wrapper never pulls.
-# shellcheck source=../lib/adcw-common.bash
-. "${REPO_ROOT}/lib/adcw-common.bash"
-export ADOC_REGISTRY
-
-resolve_image() {
-    local ADOC_IMAGE=""
-    _adcw_resolve_image "$1" || return 1
-    printf '%s' "${ADOC_IMAGE}"
-}
 
 ADOC_BASE_IMAGE="$(resolve_image adoc)"
 MERMAID_IMAGE="$(resolve_image adoc-with-mermaid)"
@@ -61,24 +46,12 @@ mkdir -p build
 OUT="$(mktemp -d build/.extract-cases.XXXXXX)"
 trap 'rm -rf "${OUT}"' EXIT
 
-failures=0
-
-indent() { echo "      | ${1//$'\n'/$'\n'      | }"; }
-
-fail() {
-    echo "FAIL: $1"
-    shift
-    [[ $# -gt 0 ]] && indent "$1"
-    failures=$((failures + 1))
-}
-
 # case <label> <fixture> <format> <want_rc> <diagnostic regex> [want_glob] [image]
 #
-# want_glob is checked against the case's own output directory, in three shapes:
-#   '*.svg'    at least one match
-#   '2:*.svg'  exactly two — "it produced something" is not the claim being made
-#   '!*.svg'   none, which is how "the renderer refused" is told apart from
-#              "the renderer wrote a broken file and said nothing"
+# want_glob is checked against the case's own output directory, either as '*.svg' — at
+# least one match — or as 'N:*.svg' for exactly N. 'it produced something' is rarely the
+# claim being made, and '0:*.svg' is how "the renderer refused" is told apart from "the
+# renderer wrote a broken file and said nothing".
 check() {
     local label="$1" fixture="$2" format="$3" want_rc="$4" want_pattern="$5"
     local want_glob="${6:-}" image="${7:-}"
@@ -87,7 +60,9 @@ check() {
     printf '%-28s ' "${label}"
 
     output="$(
-        [[ -n "${image}" ]] && export ADOC_IMAGE="${image}"
+        if [[ -n "${image}" ]]; then
+            export ADOC_IMAGE="${image}"
+        fi
         ./bin/adcw extract-diagrams -i "${FIXTURES}/${fixture}.adoc" \
             -o "${OUT}/${label}" --format "${format}" 2>&1
     )" || rc=$?
@@ -104,18 +79,12 @@ check() {
 
     if [[ -n "${want_glob}" ]]; then
         local pattern="${want_glob}" want_count=""
-        case "${want_glob}" in
-        !*) # nothing may match
-            pattern="${want_glob#!}"
-            want_count=0
-            ;;
-        [0-9]*:*) # exactly this many
+        if [[ "${want_glob}" == [0-9]*:* ]]; then
             want_count="${want_glob%%:*}"
             pattern="${want_glob#*:}"
-            ;;
-        esac
+        fi
 
-        local -a produced=()
+        local -a produced
         shopt -s nullglob
         # SC2206: the missing quotes are the point — ${pattern} is a glob and has to
         # expand. nullglob makes an empty result an empty array rather than the literal.
@@ -158,12 +127,12 @@ check plantuml-render listing-block rendered 0 'Rendered: .*\.svg' '1:*.svg'
 
 # The silent pass this suite was extended for: a renderer that fails must fail the run.
 # Exit code first, message second — a warning on stdout is what the old version did.
-check plantuml-broken broken-plantuml rendered 1 'Failed to render' '!*.svg'
+check plantuml-render-fails plantuml-syntax-error rendered 1 'Failed to render' '0:*.svg'
 
 # A renderer that is not in *this* image is the same class of failure, and must not be
 # reported as a note. The message has to name the image that does carry it, because
 # "cannot render mermaid" without a remedy sends the reader nowhere.
-check mermaid-unsupported mermaid rendered 1 'Cannot render mermaid.*adoc-with-mermaid' '!*.svg'
+check mermaid-unsupported mermaid rendered 1 'Cannot render mermaid.*adoc-with-mermaid' '0:*.svg'
 
 # The mermaid renderer itself, in the image that has it. Skipped when that image is
 # absent — unless ADCW_TEST_REQUIRE_MERMAID says the skip is a failure, which is how CI
@@ -173,19 +142,15 @@ check mermaid-unsupported mermaid rendered 1 'Cannot render mermaid.*adoc-with-m
 # answer here rather than halfway through the case below.
 if ADOC_IMAGE="${MERMAID_IMAGE}" ./bin/adcw extract-diagrams --help >/dev/null 2>&1; then
     check mermaid-render mermaid rendered 0 'Rendered: .*\.svg' '1:*.svg' "${MERMAID_IMAGE}"
-elif [[ -n "${ADCW_TEST_REQUIRE_MERMAID}" ]]; then
-    printf '%-28s ' "mermaid-render"
-    fail "${MERMAID_IMAGE} unavailable while ADCW_TEST_REQUIRE_MERMAID is set" \
-        "build it with: ADOC_VERSION=${ADOC_VERSION} ./bin/adcbw --with-mermaid"
 else
     printf '%-28s ' "mermaid-render"
-    echo "SKIP: ${MERMAID_IMAGE} not built"
-    indent "ADOC_VERSION=${ADOC_VERSION} ./bin/adcbw --with-mermaid"
+    if [[ -n "${ADCW_TEST_REQUIRE_MERMAID}" ]]; then
+        fail "${MERMAID_IMAGE} unavailable while ADCW_TEST_REQUIRE_MERMAID is set" \
+            "build it with: ADOC_VERSION=${ADOC_VERSION} ./bin/adcbw --with-mermaid"
+    else
+        echo "SKIP: ${MERMAID_IMAGE} not built"
+        indent "ADOC_VERSION=${ADOC_VERSION} ./bin/adcbw --with-mermaid"
+    fi
 fi
 
-echo
-if [[ "${failures}" -gt 0 ]]; then
-    echo "=== ${failures} case(s) failed ==="
-    exit 1
-fi
-echo "=== All cases passed ==="
+summarize
