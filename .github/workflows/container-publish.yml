@@ -30,6 +30,14 @@ env:
 
 jobs:
   build:
+    # A branch in this repository is already built by its push, so a pull request opened
+    # from one would run this workflow a second time over the same commit — twice the
+    # runner minutes and two rows in the checks list saying the same thing. A pull
+    # request from a fork is the case the trigger exists for: its push ran in the fork,
+    # under the fork's Actions settings, which may be switched off entirely.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
 
     permissions:
