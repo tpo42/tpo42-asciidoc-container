@@ -1,0 +1,82 @@
+name: Claude On Demand
+
+# The trigger list is the only filter there is. GitHub creates the workflow run from the
+# event and evaluates the job's `if:` afterwards, so a refused invocation still leaves a
+# row in the Actions list — there is no workflow-level condition, and `on:` filters know
+# `types`, `branches`, `tags` and `paths` but nothing that reads a comment or its author.
+#
+# `pull_request_review_comment` was therefore costing one skipped run per inline review
+# comment. Review bots write those by the dozen, and 18 of 18 runs from that trigger were
+# refused without ever doing anything. That volume buries the runs that matter, which is
+# the real damage: a list nobody can scan is a list nobody reads.
+#
+# `issue_comment` stays and covers issues and the pull-request conversation, which is
+# where `@claude` is actually typed. What is given up is summoning it from inside an
+# inline review thread.
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude:
+    # The mention alone must not be enough. issue_comment fires for anyone who can
+    # comment, and this repository is public — so ungated, every GitHub account could
+    # start a job that runs with this repository's secrets and spends the maintainer's
+    # token budget.
+    #
+    # github.event.comment.author_association, and what the values actually mean:
+    #   OWNER         owns the repository. On an org-owned repo such as this one people
+    #                 normally report MEMBER instead; kept for the day it moves under a
+    #                 personal account.
+    #   MEMBER        member of the owning organisation. This is the load-bearing entry.
+    #   COLLABORATOR  invited to this repository directly — at *any* level, so a read-only
+    #                 invitation reports this too. Not "has write access", hence not
+    #                 on the list.
+    #   CONTRIBUTOR   has had a commit merged, nothing further. This is where the author
+    #                 of a pull request from a fork lands.
+    #   FIRST_TIME_CONTRIBUTOR, FIRST_TIMER, NONE, MANNEQUIN — everyone else.
+    if: >-
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["OWNER", "MEMBER"]'),
+               github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    env:
+      # Hoisted out of claude_args so every tool gets its own line. Inline it is a single
+      # 138-character line; more to the point, a permission list is the part of this
+      # workflow a reviewer has to read, and one line per entry is what makes an addition
+      # visible in a diff.
+      #
+      # Escaped line breaks rather than a folded scalar: folding would join the entries
+      # with ", " and add a space the flat form never had. The CLI documents a "comma or
+      # space-separated" list and its own example has a space inside the parentheses, so
+      # it would very likely cope — but "very likely" is not something a permission list
+      # should rest on. This form yields the string byte for byte.
+      ALLOWED_TOOLS: "mcp__github_inline_comment__create_inline_comment,\
+        Bash(gh pr comment:*),\
+        Bash(gh pr diff:*),\
+        Bash(gh pr view:*)"
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      # Deliberately NO checkout of the PR head: on a foreign pull request that is
+      # untrusted code. Claude reads the diff through the API instead.
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # `actions: read` in the permissions block only widens GITHUB_TOKEN; the action
+          # reaches Actions data solely through what is declared here. Without this the
+          # permission was granted and unused. It buys asking Claude why a gate failed —
+          # workflow runs and their logs — which is the reason a review gets called into
+          # a pull request in the first place. Repository *code* is not this permission:
+          # that is `contents: read`, already above.
+          additional_permissions: |
+            actions: read
+          claude_args: |
+            --model opus
+            --max-turns 15
+            --allowedTools "${{ env.ALLOWED_TOOLS }}"
