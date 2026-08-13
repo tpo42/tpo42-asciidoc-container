@@ -13,23 +13,36 @@ ADCW — AsciiDoc Container Wrapper for the tpo42 Framework. See [README.md](REA
 ./bin/adcw <command> # run a command (flatten, validate, extract-diagrams, asciidoctor, asciidoctor-pdf, shell, ...)
 ```
 
-Local gates — run both before committing:
+Local gates — lefthook owns them, and CI runs the same jobs:
 
 ```bash
-bash test/shell-function.bash                        # sources bin/adcw, tests internals
-bash test/validate-cases.bash                        # validate regression suite (needs the image)
-shellcheck -x -P bin -P lib bin/adcw bin/adcbw lib/adcw-common.bash
+lefthook run pre-commit --all-files  # formatters, linters, shellcheck, the unit suite
+lefthook run pre-push --all-files    # the two container regression suites
 ```
 
-There is no Makefile. CI (`.github/workflows/`) only builds/publishes the
-container and cuts releases — it runs neither the tests nor shellcheck.
+The suites on their own, when one of them is what you are working on:
+
+```bash
+/bin/bash test/shell-function.bash          # sources bin/adcw, tests internals — no container
+/bin/bash test/validate-cases.bash          # validate regression suite (needs the image)
+/bin/bash test/extract-diagrams-cases.bash  # extract-diagrams regression suite (needs the image)
+```
+
+`/bin/bash` on purpose: on macOS that is bash 3.2, the oldest interpreter the wrappers
+have to survive, and a bash 4 construct parses cleanly under `bash -n` there.
+
+There is no Makefile. `.github/workflows/quality-gates.yml` runs the same lefthook jobs
+on Linux and macOS; `container-publish.yml` builds both variants per architecture, runs the container
+suites against them and publishes what passed; the unit suite needs no container and
+runs everywhere.
 
 ## Key Conventions
 
 - **Shell scripts** use `set -e -u -o pipefail`. Preserve this in all scripts.
 - **Multi-runtime support**: `bin/adcw` and `bin/adcbw` detect 5 container runtimes (container, nerdctl, finch, podman, docker). Changes must not break any of them.
 - **Container tag** is derived from `git describe` in the wrappers — `main`→`latest`, branches→slug, dirty→`-dirty` suffix.
-- **Command scripts** in `container/resources/*.sh` are installed to `/usr/local/bin/` inside the container. `extract-diagrams.sh` contains embedded Ruby using the Asciidoctor API.
+- **Command scripts** in `container/resources/` are installed to `/usr/local/bin/` inside the container. `extract-diagrams.rb` uses the Asciidoctor API directly.
+- **Tests** live in `test/`. `shell-function.bash` is the fast unit suite — it sources `bin/adcw` and runs every case in its own subshell, discovered by name, no container. `validate-cases.bash` and `extract-diagrams-cases.bash` drive `bin/adcw` against the built image and share `test/lib/harness.bash`. Fixtures are named after the defect they carry, not after the suite that reads them.
 - **User mapping**: The Containerfile accepts `USER_UID`/`USER_GID`/`USER_NAME`/`USER_GROUP_NAME` build args for host permission alignment.
 - **ADRs** in `adr/*.adoc` document all significant decisions. New decisions should follow the same AsciiDoc ADR format.
 - **Commits** use conventional commit style (`feat:`, `fix:`, `docs:`). Always `--signoff`.

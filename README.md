@@ -266,9 +266,16 @@ tpo42-asciidoc-container/
 │   ├── bashrc.bsp               Shell environment for container user
 │   ├── extra-packages           System package list
 │   └── resources/               Command scripts (plugin system)
-│       ├── extract-diagrams.sh
+│       ├── extract-diagrams.rb
 │       ├── flatten.sh
+│       ├── mmdc-wrapper.sh
 │       └── validate.sh
+├── test/
+│   ├── shell-function.bash      Unit suite (sources bin/adcw, no container)
+│   ├── validate-cases.bash      validate regression suite (needs the image)
+│   ├── extract-diagrams-cases.bash
+│   ├── lib/harness.bash         Shared by the two container suites
+│   └── fixtures/                One document per defect class
 ├── LICENSE.txt                  CC-BY-SA-4.0
 └── README.md
 ```
