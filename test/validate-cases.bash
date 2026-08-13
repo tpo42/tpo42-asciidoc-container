@@ -13,59 +13,63 @@
 # Needs the delivered image. Build it with:
 #   ADOC_VERSION=local ./bin/adcbw
 
-set -e
-set -u
-set -o pipefail
+set -e -u -o pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# Image resolution, reporting and the tally live in the harness, shared with the
+# extract-diagrams suite.
+# shellcheck source=lib/harness.bash
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/harness.bash"
+
 FIXTURES="test/fixtures/validate"
 
-: "${ADOC_VERSION:=local}"
-export ADOC_VERSION
-
-# Asked of the library rather than rebuilt from the same parts. Reassembling
-# "${ADOC_REGISTRY:+…/}${name}:${ADOC_VERSION}" here would be a second place holding the
-# same rule, and the copy that drifts is always the one nobody runs — the suite would
-# then report against an image the wrapper never pulls.
-# shellcheck source=../lib/adcw-common.bash
-. "${REPO_ROOT}/lib/adcw-common.bash"
-export ADOC_REGISTRY
-
-resolve_image() {
-    local ADOC_IMAGE=""
-    _adcw_resolve_image "$1" || return 1
-    printf '%s' "${ADOC_IMAGE}"
-}
+cd "${REPO_ROOT}"
 
 ADOC_BASE_IMAGE="$(resolve_image adoc)"
 
-failures=0
-
-# Prefix every line of a captured block, without piping a variable through sed.
-indent() { echo "      | ${1//$'\n'/$'\n'      | }"; }
-
-# case <fixture> <expected exit> <expected diagnostic regex>
+# check <fixture> <expected exit> <pattern>... [-- <extra adcw arguments>]
+#
+# A pattern prefixed with '!' must *not* appear. That is what tells "the renderer was
+# skipped" apart from "the renderer ran and stayed quiet", and it is why the escape-hatch
+# case below is a case rather than a hand-written block beside the harness.
 check() {
-    local fixture="$1" want_rc="$2" want_pattern="$3"
-    local output rc=0
+    local fixture="$1" want_rc="$2"
+    shift 2
 
-    printf '%-22s ' "${fixture}"
-    output="$(cd "${REPO_ROOT}" && ./bin/adcw validate -i "${FIXTURES}/${fixture}.adoc" -l INFO 2>&1)" || rc=$?
+    local -a patterns=() extra=()
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "--" ]]; then
+            shift
+            extra=("$@")
+            break
+        fi
+        patterns+=("$1")
+        shift
+    done
+
+    local output rc=0 pattern
+    printf '%-38s ' "${fixture}${extra[0]:+ ${extra[*]}}"
+
+    # bash 3.2 treats "${extra[@]}" on an empty array as unbound under `set -u`, hence
+    # the guard rather than a plain expansion.
+    output="$(./bin/adcw validate -i "${FIXTURES}/${fixture}.adoc" -l INFO \
+        ${extra[@]+"${extra[@]}"} 2>&1)" || rc=$?
 
     if [[ "${rc}" -ne "${want_rc}" ]]; then
-        echo "FAIL: expected exit ${want_rc}, got ${rc}"
-        indent "${output}"
-        failures=$((failures + 1))
+        fail "expected exit ${want_rc}, got ${rc}" "${output}"
         return 0
     fi
 
-    if ! echo "${output}" | grep -qE "${want_pattern}"; then
-        echo "FAIL: exit ${rc} as expected, but no match for /${want_pattern}/"
-        indent "${output}"
-        failures=$((failures + 1))
-        return 0
-    fi
+    for pattern in "${patterns[@]}"; do
+        if [[ "${pattern}" == '!'* ]]; then
+            if echo "${output}" | grep -qE "${pattern#!}"; then
+                fail "exit ${rc} as expected, but /${pattern#!}/ must not appear" "${output}"
+                return 0
+            fi
+        elif ! echo "${output}" | grep -qE "${pattern}"; then
+            fail "exit ${rc} as expected, but no match for /${pattern}/" "${output}"
+            return 0
+        fi
+    done
 
     echo "PASS"
 }
@@ -83,36 +87,16 @@ check skipped-heading 1 'WARNING:.*section title out of sequence'
 # The gap this suite was written for: without the diagram extension asciidoctor only
 # parses the block, so a broken diagram reaches DEBUG ("unknown style for listing block")
 # and validation passes. Rendering is what turns it into a finding.
-check broken-plantuml 1 'ERROR:.*Failed to generate image'
+check plantuml-syntax-error 1 'ERROR:.*Failed to generate image'
 
 # The escape hatch has to actually escape, or --no-diagrams is a comfortable lie.
 #
 # Three assertions, because exit 0 alone is satisfied by a validator that skipped the
 # document entirely — which is the same shape of lie in the other direction. The run has
 # to succeed, the renderer must not have run, and the file must be reported as validated.
-printf '%-22s ' "broken-plantuml/off"
-off_rc=0
-off_output="$(cd "${REPO_ROOT}" && ./bin/adcw validate -i "${FIXTURES}/broken-plantuml.adoc" \
-    -l INFO --no-diagrams 2>&1)" || off_rc=$?
-if [[ "${off_rc}" -ne 0 ]]; then
-    echo "FAIL: --no-diagrams still failed the document"
-    indent "${off_output}"
-    failures=$((failures + 1))
-elif echo "${off_output}" | grep -qE 'Failed to generate image'; then
-    echo "FAIL: the renderer ran despite --no-diagrams"
-    indent "${off_output}"
-    failures=$((failures + 1))
-elif ! echo "${off_output}" | grep -qE 'Valid files:[[:space:]]+1'; then
-    echo "FAIL: exit 0, but the document was never reported as validated"
-    indent "${off_output}"
-    failures=$((failures + 1))
-else
-    echo "PASS"
-fi
+check plantuml-syntax-error 0 \
+    'Valid files:[[:space:]]+1' \
+    '!Failed to generate image' \
+    -- --no-diagrams
 
-echo
-if [[ "${failures}" -gt 0 ]]; then
-    echo "=== ${failures} case(s) failed ==="
-    exit 1
-fi
-echo "=== All cases passed ==="
+summarize

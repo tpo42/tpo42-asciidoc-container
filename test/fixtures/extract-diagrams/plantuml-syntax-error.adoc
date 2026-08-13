@@ -1,0 +1,16 @@
+= PlantUML Syntax Error
+
+The third line of the block is not PlantUML, so the renderer rejects the diagram and the
+run has to fail with it. asciidoctor-diagram supplies the `@startuml`/`@enduml` frame for
+a bare block, so the syntax error is the whole of what makes this fail — not the absent
+markers.
+
+The offending statement is the one the validate fixture of the same name uses,
+deliberately — two different bets on what PlantUML refuses would mean one suite silently
+stops testing the failure path it was written for.
+
+[plantuml]
+----
+Alice -> Bob : hello
+!!! this line is not PlantUML at all (((
+----

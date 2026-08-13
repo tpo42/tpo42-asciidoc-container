@@ -1,0 +1,19 @@
+= PlantUML Syntax Error
+
+The block below is well formed as AsciiDoc; the third line of the diagram is not
+PlantUML, so the renderer rejects it. That is the whole point of the fixture: without
+rendering, asciidoctor only parses the block and the document validates clean.
+
+The offending statement is the one the extract-diagrams fixture of the same name uses,
+deliberately — two different bets on what PlantUML refuses would mean one suite silently
+stops testing the failure path it was written for.
+
+== Section
+
+[plantuml,syntax-error,svg]
+----
+@startuml
+Alice -> Bob : hello
+!!! this line is not PlantUML at all (((
+@enduml
+----
