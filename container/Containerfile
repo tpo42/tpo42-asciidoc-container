@@ -82,6 +82,17 @@ COPY resources/extract-diagrams.rb /usr/local/bin/extract-diagrams
 COPY resources/validate.sh /usr/local/bin/validate
 RUN chmod +x /usr/local/bin/flatten /usr/local/bin/extract-diagrams /usr/local/bin/validate
 
+# A login shell reads /etc/profile, which sets PATH from scratch and drops what the ENV
+# above put there — `bash -l` inside the container finds neither asciidoctor nor any other
+# gem binary. profile.d runs afterwards and puts them back.
+#
+# SC2016: the single quotes are the mechanism. ${PATH} belongs to the profile script when
+# it runs; only the %s is filled in here, from the ENV above.
+# hadolint ignore=SC2016
+RUN printf 'PATH="%s:${PATH}"\nexport PATH\n' "${GEM_BIN_PATH}:${BUNDLE_BIN}" \
+    > /etc/profile.d/adcw-path.sh \
+    && chmod 0644 /etc/profile.d/adcw-path.sh
+
 # Create volume directories
 #
 # The two bin/adcw mounts, and nothing else. A /cache used to be created here for a cache
@@ -127,6 +138,15 @@ RUN ( \
             fi ; \
         done \
     )
+
+# The account is created without a password, so membership in `sudo` alone leaves the
+# prompt unanswerable — `sudo apt-get install …` fails where a second terminal as root
+# would work. Installing a package for the length of a session is the ordinary case here;
+# whoever can start this container can already run it as root, so the group is asked for a
+# convenience it does not grant on its own.
+RUN echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/adcw-nopasswd \
+    && chmod 0440 /etc/sudoers.d/adcw-nopasswd \
+    && visudo --check --file=/etc/sudoers.d/adcw-nopasswd
 
 # Setup container environment
 RUN --mount=type=bind,source=bashrc.bsp,target=/mnt/bashrc.bsp,ro \

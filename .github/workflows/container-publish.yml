@@ -252,6 +252,7 @@ jobs:
         run: |
           test/run-suite.bash test/validate-cases.bats
           test/run-suite.bash test/extract-diagrams-cases.bats
+          test/run-suite.bash test/image-cases.bats
 
       # An artifact, not a job output: matrix outputs are last-writer-wins and the order
       # is not guaranteed, so a downstream job would see one cell's digest and could not
