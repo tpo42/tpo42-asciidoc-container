@@ -87,11 +87,18 @@ Developer workstations and CI pipelines use the same `devcontainer.json` -- ther
 
 With `adcw` in your PATH, it auto-detects the execution context:
 
-| Context             | Detection                                         | Execution                                |
-| ------------------- | ------------------------------------------------- | ---------------------------------------- |
-| Docker Compose      | `docker-compose.yml` in cwd                       | `docker compose exec <service> ...`      |
-| Devcontainer        | `.devcontainer/devcontainer.json` with tpo42/adoc | `devcontainer exec ...`                  |
-| Dedicated container | Container runtime available                       | `<runtime> run ... tpo42/adoc:<tag> ...` |
+| Context             | Detection                                            | Execution                                     |
+| ------------------- | ---------------------------------------------------- | --------------------------------------------- |
+| Compose             | a compose file in cwd whose service names this image | `<compose> -f <file> exec <service> ...`      |
+| Devcontainer        | `.devcontainer/devcontainer.json` with tpo42/adoc    | `devcontainer exec ...`                       |
+| Dedicated container | Container runtime available                          | `<runtime> run ... <registry>/adoc:<version>` |
+
+`<runtime>` and `<compose>` are whatever the search finds, not `docker` by name: the
+runtimes are tried in the order `container`, `nerdctl`, `finch`, `podman`, `docker`, and
+compose follows the runtime rather than picking its own — `<runtime> compose` where that
+exists, otherwise the standalone binary belonging to it (ADR-009). The compose file is
+looked up in `docker compose`'s own precedence, and its services are read to check that
+one of them names this toolchain; `ADOC_SERVICE` names it explicitly instead.
 
 See [ADR-007](adr/adr-007.adoc) for the design rationale.
 
@@ -153,7 +160,7 @@ takes over completely when the name does not follow that shape.
 ```bash
 # In a project with docker-compose.yml containing an 'adoc' service
 cd ~/project
-adcw validate -i doc.adoc              # uses docker compose exec
+adcw validate -i doc.adoc              # execs into the running compose service
 
 # Service name is auto-detected from docker-compose.yml (e.g., xodos-adoc)
 # Override if needed:
@@ -166,9 +173,11 @@ adcw -f ~/other/docker-compose.yml validate -i doc.adoc
 cd ~/website
 adcw asciidoctor-pdf article.adoc      # uses devcontainer exec
 
-# Anywhere else (falls back to direct container execution)
-cd /tmp
-adcw flatten -i /path/to/doc.adoc -o flat.adoc
+# Anywhere else (falls back to direct container execution). The working directory is
+# what gets mounted, so the paths have to be inside it — an absolute path from
+# somewhere else does not exist as far as the container is concerned.
+cd ~/notes
+adcw flatten -i doc.adoc -o build/flat.adoc
 ```
 
 ## Container Stack
@@ -210,6 +219,10 @@ ADOC_IMAGE=ghcr.io/tpo42/adoc-with-mermaid:latest adcw validate -i doc.adoc
 ./bin/adcbw                        # build the toolchain
 ./bin/adcbw --with-mermaid         # build the variant that renders Mermaid
 ```
+
+Mind the tag: both wrappers derive it from `git describe`, so on a branch they build and
+resolve `…:<branch-slug>`, not `:latest`. Pin `ADOC_VERSION` when a command has to name
+the image a build just produced.
 
 Both come from one `container/Containerfile` with two stages, so the variant
 never has to wait for the base image to be published somewhere.
