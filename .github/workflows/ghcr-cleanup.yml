@@ -9,20 +9,27 @@
 #
 #   on: delete    — a branch goes away, its image goes with it. Precise, immediate, and
 #                   covers the ordinary end of a branch's life.
-#   on: schedule  — weekly, for everything the first mechanism missed: branches nobody
-#                   deleted, and the sha- tags that no branch deletion refers to.
+#   on: schedule  — for everything the first mechanism missed: branches nobody deleted,
+#                   and the sha- tags that no branch deletion refers to.
 #
 # What is never touched: `latest` and anything that looks like a version. A registry is
 # a distribution channel, and a cleanup job that can delete a release is a liability
 # rather than housekeeping.
+#
+# Everything else is a working copy with a short life. Since ADR-011 every branch push
+# publishes two images per architecture, so what accumulates here is not the occasional
+# forgotten branch but the ordinary output of ordinary work — a retention that outlives
+# the branch it belongs to buys nobody anything. Hence three days, and daily rather than
+# weekly: a cutoff of three checked once a week means an image lives between three and
+# ten days depending on the weekday it was built, which is not a policy but an accident.
 ---
 name: registry cleanup
 
 on:
   delete:
   schedule:
-    # Friday, 02:30 UTC
-    - cron: "30 2 * * 5"
+    # Daily, 02:30 UTC
+    - cron: "30 2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -68,5 +75,5 @@ jobs:
         run: |
           set -u
           for package in adoc adoc-with-mermaid; do
-            bash .github/scripts/ghcr-sweep.sh "${OWNER}" "${package}" 7
+            bash .github/scripts/ghcr-sweep.sh "${OWNER}" "${package}" 3
           done
