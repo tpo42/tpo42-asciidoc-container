@@ -1,0 +1,2 @@
+A sentence that exists only in the included part, so a flattened document can be told
+apart from a copied one.

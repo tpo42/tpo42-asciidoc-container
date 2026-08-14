@@ -1,0 +1,4 @@
+= Top Level
+
+A clean document one directory deep, beside a subdirectory holding another one. The pair
+exists so a glob can be asked whether it stays where it was pointed.

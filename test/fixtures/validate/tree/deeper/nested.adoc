@@ -1,0 +1,4 @@
+= Nested
+
+Clean, and one level below what `tree/*.adoc` names. A glob handed to `find -path` matches
+across directory separators, so this file is reached by a pattern that never mentioned it.

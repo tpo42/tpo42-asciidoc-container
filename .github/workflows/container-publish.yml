@@ -251,6 +251,7 @@ jobs:
           ADCW_TEST_REQUIRE_MERMAID: "1"
         run: |
           test/run-suite.bash test/validate-cases.bats
+          test/run-suite.bash test/flatten-cases.bats
           test/run-suite.bash test/extract-diagrams-cases.bats
           test/run-suite.bash test/image-cases.bats
 

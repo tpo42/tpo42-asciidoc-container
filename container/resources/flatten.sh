@@ -31,6 +31,18 @@ Examples:
 EOF
 }
 
+# An option that takes a value has to say so when it is handed none. Reading $2 under
+# `set -u` answers with "unbound variable" and a line number instead — bash talking about
+# this script's implementation where the script has something to say about the call.
+require_value() {
+    local flag="$1" what="$2" remaining="$3"
+    if [[ "${remaining}" -lt 2 ]]; then
+        echo "❌ ${flag} requires ${what}"
+        show_usage
+        exit 1
+    fi
+}
+
 # Parse command line arguments
 INPUT_FILE=""
 OUTPUT_FILE=""
@@ -38,10 +50,12 @@ OUTPUT_FILE=""
 while [[ $# -gt 0 ]]; do
     case $1 in
     -i | --input)
+        require_value "$1" "a file argument" "$#"
         INPUT_FILE="$2"
         shift 2
         ;;
     -o | --output)
+        require_value "$1" "a path argument" "$#"
         OUTPUT_FILE="$2"
         shift 2
         ;;

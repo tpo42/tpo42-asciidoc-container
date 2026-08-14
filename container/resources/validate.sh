@@ -40,6 +40,18 @@ Examples:
 EOF
 }
 
+# An option that takes a value has to say so when it is handed none. Reading $2 under
+# `set -u` answers with "unbound variable" and a line number instead — bash talking about
+# this script's implementation where the script has something to say about the call.
+require_value() {
+    local flag="$1" what="$2" remaining="$3"
+    if [[ "${remaining}" -lt 2 ]]; then
+        echo "❌ ${flag} requires ${what}"
+        show_usage
+        exit 1
+    fi
+}
+
 # Parse command line arguments
 INPUT_ARGS=()
 ASCIIDOCTOR_EXTRA=()
@@ -57,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         break
         ;;
     -i | --input)
+        require_value "$1" "a file or glob argument" "$#"
         INPUT_ARGS+=("$2")
         shift 2
         ;;
@@ -65,10 +78,12 @@ while [[ $# -gt 0 ]]; do
         shift
         ;;
     -w | --work-dir)
+        require_value "$1" "a directory argument" "$#"
         WORK_DIR="$2"
         shift 2
         ;;
     -l | --failure-level)
+        require_value "$1" "one of INFO, WARN, ERROR, FATAL" "$#"
         FAILURE_LEVEL="$2"
         shift 2
         ;;
@@ -110,11 +125,29 @@ fi
 # diagnosis is of interest here, so nothing is retrieved and the directory goes away on
 # exit — working directory, not result directory.
 #
-# Inside the workspace on purpose. --safe-mode server bends absolute attribute paths back
-# into the document's base directory, so a scratch under /tmp reappears as
-# <basedir>/tmp/… with real diagrams in it. The default parent is build/, which bin/adcw
-# already creates and mounts and which consumers already ignore.
-if ! mkdir -p "${WORK_DIR}" 2>/dev/null || ! SCRATCH="$(mktemp -d "${WORK_DIR}/.validate.XXXXXX" 2>/dev/null)"; then
+# Inside the workspace, and not by preference: --safe-mode server jails every output path
+# to the base directory below, and refuses anything outside it with a SecurityError six
+# frames deep — reported against the document, as though the document were at fault. The
+# default parent is build/, which bin/adcw already creates and mounts and which consumers
+# already ignore.
+if ! mkdir -p "${WORK_DIR}" 2>/dev/null; then
+    echo "❌ Cannot create the work directory: ${WORK_DIR}"
+    exit 1
+fi
+
+WORK_DIR_ABS="$(cd "${WORK_DIR}" && pwd -P)"
+if [[ "${WORK_DIR_ABS}" != "${PWD}" && "${WORK_DIR_ABS}" != "${PWD}"/* ]]; then
+    echo "❌ The work directory must be inside the workspace: ${WORK_DIR}"
+    echo ""
+    echo "   Validation renders, and --safe-mode server refuses to write anywhere"
+    echo "   outside ${PWD}. Rendering is what turns a broken diagram into a finding,"
+    echo "   so it cannot simply be pointed elsewhere."
+    echo ""
+    echo "   Pick a directory inside the workspace, or use --no-diagrams."
+    exit 1
+fi
+
+if ! SCRATCH="$(mktemp -d "${WORK_DIR}/.validate.XXXXXX" 2>/dev/null)"; then
     echo "❌ Cannot write to the work directory: ${WORK_DIR}"
     echo ""
     echo "   Validation renders into the workspace because --safe-mode server refuses"
@@ -137,12 +170,23 @@ for input in "${INPUT_ARGS[@]}"; do
         # Glob pattern — use -path for patterns with directory components,
         # -name for simple filename globs
         find_flag="-name"
+        want_depth=""
         if [[ "${input}" == *"/"* ]]; then
             find_flag="-path"
             [[ "${input}" != ./* ]] && input="./${input}"
+            # `find -path` lets * cross directory separators, so 'adr/*.adoc' also reaches
+            # adr/sub/deep.adoc — a file the pattern never named. find offers no switch for
+            # it, so the number of separators the pattern asks for is counted and enforced
+            # below. A pattern without a separator goes to -name, which searches the whole
+            # tree by design and keeps doing so.
+            want_depth="$(printf '%s' "${input}" | tr -cd '/' | wc -c | tr -d '[:space:]')"
         fi
         matched=0
         while IFS= read -r -d '' file; do
+            if [[ -n "${want_depth}" ]]; then
+                depth="$(printf '%s' "${file}" | tr -cd '/' | wc -c | tr -d '[:space:]')"
+                [[ "${depth}" == "${want_depth}" ]] || continue
+            fi
             FILES+=("$file")
             matched=$((matched + 1))
         done < <(find . ${find_flag} "${input}" -type f -print0 2>/dev/null || true)
@@ -253,18 +297,6 @@ for file in "${FILES[@]}"; do
     # Additional checks for common issues
     if [[ "${VERBOSE}" == true ]]; then
         echo "   🔍 Additional checks:"
-
-        # Check for missing include files
-        while IFS= read -r include_line; do
-            if [[ -n "${include_line}" ]]; then
-                include_file=$(echo "${include_line}" | sed -n 's/^include::\([^[]*\).*/\1/p')
-                if [[ -n "${include_file}" ]]; then
-                    if [[ ! -f "${include_file}" ]] && [[ ! -f "$(dirname "${file}")/${include_file}" ]]; then
-                        echo "      ⚠️  Missing include: ${include_file}"
-                    fi
-                fi
-            fi
-        done < <(grep -n "^include::" "${file}" 2>/dev/null || true)
 
         # Check for diagram blocks. Counting only — the real check is the rendering
         # above; this line predates it and is kept as a hint about document shape.

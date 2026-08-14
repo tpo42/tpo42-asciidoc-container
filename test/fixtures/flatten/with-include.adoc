@@ -1,0 +1,7 @@
+= Document With An Include
+
+A paragraph belonging to the parent.
+
+include::part.adoc[]
+
+Another parent paragraph, after the include.
