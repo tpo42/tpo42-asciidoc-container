@@ -12,6 +12,11 @@
 # per-architecture children of a live multi-arch tag, and its attestations. Whether an
 # untagged version is one of those or a genuine orphan is not visible in the packages
 # API — it takes a look at the manifests of everything that survives.
+#
+# Since ADR-011 that distinction carries the whole job rather than an edge of it: every
+# branch push publishes by digest without a tag, and only the merge job tags the list it
+# assembles. Untagged is therefore the normal state of both a live architecture manifest
+# and the leftovers of a matrix whose sibling cell failed.
 
 set -e
 set -u
@@ -51,36 +56,23 @@ token="$(ghcr_registry_token "${OWNER}" "${PACKAGE}")" || {
     exit 1
 }
 
-# Pass one — collect what the survivors of this run point at. A version survives if it is
-# young enough or carries a protected tag; the children of one being deleted today turn
-# into orphans and are swept next week, which is what the schedule is for.
-referenced=""
-while read -r id digest updated tags; do
-    [[ -n "${id}" ]] || continue
-    if [[ "${updated}" < "${cutoff}" ]] && ! is_tag_list_protected "${tags}"; then
-        continue
-    fi
-    children="$(ghcr_child_digests "${OWNER}" "${PACKAGE}" "${token}" "${digest}")" || {
-        echo "error: cannot read the manifest of ${digest} — deleting nothing" >&2
-        exit 1
-    }
-    referenced+="${children}"$'\n'
-done <<<"${versions}"
+# The classification lives in ghcr-common.sh and is driven from here, so that a suite can
+# reach it without a registry. A failure in pass one is fatal on purpose: an unreadable
+# manifest means the reference set is incomplete, and an incomplete reference set deletes
+# live architecture manifests.
+referenced="$(ghcr_referenced_digests "${OWNER}" "${PACKAGE}" "${token}" "${cutoff}" <<<"${versions}")" || exit 1
 
-# Pass two — delete what is old, unprotected and unreferenced.
-while read -r id digest updated tags; do
-    [[ -n "${id}" ]] || continue
-    [[ "${updated}" < "${cutoff}" ]] || continue
+# The plan is printed before it is executed. On a scheduled job nobody watches, the log is
+# the only account of what was removed and why the rest was not.
+plan="$(ghcr_sweep_plan "${cutoff}" "${referenced}" <<<"${versions}")"
+[[ -n "${plan}" ]] || {
+    echo "nothing older than the cutoff"
+    exit 0
+}
+echo "${plan}"
 
-    if is_tag_list_protected "${tags}"; then
-        echo "keeping version ${id} (${tags}) — carries a protected tag"
-        continue
-    fi
-    if grep -qxF "${digest}" <<<"${referenced}"; then
-        echo "keeping version ${id} (${digest}) — a surviving index points at it"
-        continue
-    fi
-
-    echo "deleting version ${id} (${tags:-untagged})"
+while read -r action id rest; do
+    [[ "${action}" == "delete" ]] || continue
+    echo "deleting version ${id} (${rest})"
     gh api --method DELETE "${base}/versions/${id}"
-done <<<"${versions}"
+done <<<"${plan}"
