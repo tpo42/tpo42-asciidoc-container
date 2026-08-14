@@ -65,6 +65,20 @@ adcw asciidoctor-pdf <file.adoc>   # PDF
 adcw extract-diagrams -i <file.adoc> -o build/diagrams/
 ```
 
+`/tmp/flat.adoc` is deliberate, and it is not an output path anybody is meant to read.
+`/tmp` is container-local and gone with `--rm`, which is the point: the flattening has to
+*happen* for the includes to be resolved and the result checked, and then the result is
+of no further interest.
+
+**Do not "optimise" this to `-o /dev/null`.** A null target lets the transformation be
+skipped, and then nothing is checked at all — the command succeeds without having done
+the work it was called for. The same applies to `validate`, which renders into a scratch
+directory for the same reason: rendering is what turns a broken diagram into a finding.
+
+Write to a real path when the flattened document is the point — as LLM context, for
+instance — and pick one inside the workspace, since that and `./build` are the only paths
+the container can see.
+
 ## Error Handling
 
 - If `adcw` is not found, it needs to be added to PATH
