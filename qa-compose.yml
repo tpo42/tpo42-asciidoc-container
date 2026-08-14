@@ -37,6 +37,11 @@ services:
       args:
         USER_UID: ${USER_UID:-1000}
         USER_GID: ${USER_GID:-1000}
+    # The image bakes the same ids, so this is belt and braces — but an image built before
+    # .env existed, or pulled rather than built, carries uid 1000 and the formatters then
+    # write into the bind mount as somebody else. macOS remaps ownership and never shows
+    # it; on Linux the job dies of "permission denied" instead of a formatting finding.
+    user: "${USER_UID:-1000}:${USER_GID:-1000}"
     volumes:
       - .:/workspace
     # gitlint asks git for user.name, and the container never sees ~/.gitconfig. Neither

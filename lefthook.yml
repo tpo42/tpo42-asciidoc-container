@@ -155,9 +155,24 @@ pre-commit:
       run: "{mini} mdformat --number {staged_files}"
 
     # git-native, so deliberately without a template: git is part of the host floor.
+    #
+    # git ships this check as the last line of its own pre-commit.sample, and the shape
+    # matters: `git diff --check` compares the worktree against the index, which in a
+    # pre-commit hook is everything that is *not* being committed. A staged conflict
+    # marker passes, and a marker in a file nobody staged blocks. The empty tree covers
+    # the first commit, where HEAD does not exist yet.
+    #
+    # --check reports whitespace errors as well as conflict markers, so the job does a
+    # little more than its name promises.
     - name: merge-markers
       tags: [mini]
-      run: git diff --check
+      run: |
+        if git rev-parse --verify HEAD >/dev/null 2>&1; then
+          against=HEAD
+        else
+          against="$(git hash-object -t tree /dev/null)"
+        fi
+        exec git diff-index --check --cached "${against}" --
 
     # Commits are allowed on main and on feature/, hotfix/ and release/ branches,
     # nowhere else.

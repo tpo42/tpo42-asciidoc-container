@@ -32,7 +32,7 @@ test/run-suite.bash --filter 'compose' test/unit      # one case
 ```
 
 Always through `test/run-suite.bash`, never `bats` directly: the wrapper pins the
-interpreter to `/bin/bash` — on macOS 3.2, the oldest one the wrappers have to survive,
+interpreter to `/bin/bash` — bash 3.2 on macOS, the oldest one the wrappers have to survive,
 where a bash 4 construct parses cleanly under `bash -n` and fails only when it runs.
 bats' own `#!/usr/bin/env bash` would pick a brewed 5.x instead (ADR-010).
 
