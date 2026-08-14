@@ -8,3 +8,5 @@ lefthook-local.yml
 # host-local compose values — your git identity, for tools running in a container
 .env
 build/
+# asciidoctor-diagram's image cache, written next to the document it renders
+.asciidoctor/
