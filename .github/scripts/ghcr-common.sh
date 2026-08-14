@@ -101,6 +101,65 @@ ghcr_versions_path() {
     return 1
 }
 
+# --- The sweep, in two passes -------------------------------------------------
+#
+# Both read the same version list on stdin, one line per version:
+#
+#     <id> <digest> <updated_at> <comma-separated tags or empty>
+#
+# They are functions rather than inline loops so a suite can drive them without a
+# registry: the classification is where the damage happens, and it was the part that
+# could not be reached from a test while it sat in the middle of the script.
+
+# Pass one — every digest a survivor of this run points at, one per line.
+#
+# A version survives if it is young enough or carries a protected tag. The children of
+# one being deleted today become orphans and are swept next time, which is what the
+# schedule is for.
+#
+# Fails without printing a partial answer when a manifest cannot be read. The caller
+# deletes on this output, so "no children" and "could not ask" must not look alike.
+ghcr_referenced_digests() {
+    local owner="$1" package="$2" token="$3" cutoff="$4"
+    local id digest updated tags children
+
+    while read -r id digest updated tags; do
+        [[ -n "${id}" ]] || continue
+        if [[ "${updated}" < "${cutoff}" ]] && ! is_tag_list_protected "${tags}"; then
+            continue
+        fi
+        children="$(ghcr_child_digests "${owner}" "${package}" "${token}" "${digest}")" || {
+            echo "error: cannot read the manifest of ${digest} — deciding nothing" >&2
+            return 1
+        }
+        [[ -n "${children}" ]] && printf '%s\n' "${children}"
+    done
+    return 0
+}
+
+# Pass two — the plan, one line per version, as `keep <id> <why>` or `delete <id> <what>`.
+#
+# Deliberately data rather than action: nothing here talks to the registry, so the whole
+# decision can be asserted in a test, and the caller stays a loop that executes a plan it
+# can also just print.
+ghcr_sweep_plan() {
+    local cutoff="$1" referenced="$2"
+    local id digest updated tags
+
+    while read -r id digest updated tags; do
+        [[ -n "${id}" ]] || continue
+        [[ "${updated}" < "${cutoff}" ]] || continue
+
+        if is_tag_list_protected "${tags}"; then
+            echo "keep ${id} carries a protected tag (${tags})"
+        elif grep -qxF "${digest}" <<<"${referenced}"; then
+            echo "keep ${id} a surviving index points at ${digest}"
+        else
+            echo "delete ${id} ${tags:-untagged}"
+        fi
+    done
+}
+
 # Delete every version id read from stdin, unless it carries a protected tag.
 # Input lines: "<id> <comma-separated tags>"
 ghcr_delete_unprotected() {
