@@ -1,0 +1,13 @@
+= Graphviz Block
+
+Graphviz on its own, rendered. `both-blocks.adoc` also carries a graphviz block, but only
+to prove the block finder handles both delimiters -- it is never rendered there, so
+without this file the `dot` path had no case of its own.
+
+[graphviz]
+----
+digraph g {
+  a -> b;
+  b -> c;
+}
+----

@@ -1,0 +1,17 @@
+= C4 Through PlantUML
+
+C4 is not a diagram type. It is a PlantUML standard library, reached with `!include`, and
+the gem's jar carries it -- which is why `c4plantuml` was removed from SUPPORTED_TYPES
+rather than given a renderer. It had never been a block type at all: a `[c4plantuml]`
+block is not recognised by anything, so it failed with an empty message.
+
+The help text tells readers to write C4 this way. This fixture is what keeps that
+sentence from becoming a claim nobody checks.
+
+[plantuml]
+----
+@startuml
+!include <C4/C4_Container>
+Person(user, "Reader", "Reads the documentation")
+@enduml
+----
