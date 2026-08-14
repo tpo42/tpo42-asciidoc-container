@@ -48,6 +48,15 @@ reviews:
         `Kernel#warn` ist unter `RUBYOPT=-W0` ein No-Op. Das Containerfile setzt es
         nicht mehr; wer es wieder einführt, macht sämtliche Fehlermeldungen unsichtbar.
 
+        Kein Angreifermodell gegen den Dokumentautor. Wer ein Dokument durch diese
+        Toolchain schickt, hat mit `safe: :unsafe` ohnehin Includes über alles, was
+        unter /workspace gemountet ist; diese Kommandos verleihen keine Fähigkeit, die
+        nicht schon da wäre. Ein Pfad, der aus dem Ausgabeverzeichnis führt, ist als
+        *Robustheitsfrage* zu melden — „`-o` hält, was es sagt" —, nicht als
+        Sicherheitsfund. Ein Ausbruch aus dem Container ist auf diesem Weg nicht
+        möglich: oberhalb des Bind-Mounts liegt das ephemere Dateisystem des
+        Containers, das mit `--rm` verschwindet.
+
     - path: "test/**/*.bash"
       instructions: |
         Eine Assertion, die das aktuelle Verhalten festschreibt statt der Anforderung,
@@ -88,9 +97,16 @@ reviews:
 
     - path: ".github/workflows/**/*.yml"
       instructions: |
-        Gepinnte Action-Versionen, minimale Permissions, Secret-Handling prüfen.
+        Minimale Permissions und Secret-Handling prüfen. Action-Versionen sind auf die
+        Release-Linie gepinnt (`@v7`), nicht auf Commit-SHAs — dieselbe Entscheidung wie
+        bei `fedora-minimal:44` und `~> 3.2` im Gemfile: die Linie festnageln, die
+        Korrekturen darin mitnehmen. SHA-Pinning bitte nicht erneut vorschlagen.
+
         Beide Image-Varianten werden immer gebaut und getestet — ein übersprungener
-        Mermaid-Fall bedeutet, dass dieser Renderer nirgends läuft.
+        Mermaid-Fall bedeutet, dass dieser Renderer nirgends läuft. Die Variante ist
+        allerdings Stufe zwei desselben Containerfiles (`FROM adoc`): scheitert das
+        Basis-Image, kann sie gar nicht erst gebaut werden. Ein `continue` nach einem
+        fehlgeschlagenen Basis-Build verdeckt daher nichts.
 
 chat:
   auto_reply: true
