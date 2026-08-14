@@ -83,7 +83,11 @@ COPY resources/validate.sh /usr/local/bin/validate
 RUN chmod +x /usr/local/bin/flatten /usr/local/bin/extract-diagrams /usr/local/bin/validate
 
 # Create volume directories
-ENV VOLUMES="/workspace:/build:/cache"
+#
+# The two bin/adcw mounts, and nothing else. A /cache used to be created here for a cache
+# volume that was never mounted and never written to; `validate` could not have used it
+# either, since --safe-mode server jails every output path to /workspace.
+ENV VOLUMES="/workspace:/build"
 
 RUN export IFS=":" ; \
     for dir in ${VOLUMES} ; do \
