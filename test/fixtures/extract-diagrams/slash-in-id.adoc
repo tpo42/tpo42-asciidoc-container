@@ -1,0 +1,16 @@
+= A Block Id Containing A Slash
+
+The id of a block becomes the stem of every file extracted from it. `arch/overview` is an
+id somebody writes without thinking about it, and joined onto the output directory it
+names a subdirectory that does not exist — the extraction then produces nothing at all.
+
+The attribute form is what a document actually gets away with: Asciidoctor rejects
+`[[arch/overview]]` and drops `[plantuml#arch/overview]`, but passes `id=` through
+untouched, as it does for `[#arch/overview]`.
+
+[plantuml,id="arch/overview"]
+----
+@startuml
+Alice -> Bob : hello
+@enduml
+----

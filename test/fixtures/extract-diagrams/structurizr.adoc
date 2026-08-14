@@ -1,0 +1,20 @@
+= Structurizr Block
+
+A type this image recognises but cannot render. The jar ships with asciidoctor-diagram,
+but the converter wants DIAGRAM_STRUCTURIZR_CLASSPATH pointed at it, so `--format
+rendered` fails here and says so.
+
+Extracting the source still works, and that is the whole reason the two lists are
+separate: pulling text out of a block needs no renderer, and handing a diagram to a
+reader or a model is what this tool is for.
+
+[structurizr]
+----
+workspace {
+  model {
+    user = person "Reader"
+  }
+  views {
+  }
+}
+----

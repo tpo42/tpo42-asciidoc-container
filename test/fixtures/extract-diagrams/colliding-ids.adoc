@@ -1,0 +1,22 @@
+= Two Ids That Normalise To One Name
+
+Keeping every component of an id means `arch/overview` and `ui/overview` stay two names.
+What no normalisation can keep apart is a separator meeting the character it is replaced
+by: `arch/overview` and `arch_overview` are two ids and one filename.
+
+Contrived, and that is the point -- the residual case has to fail loudly rather than
+quietly drop one of the two.
+
+[plantuml,id="arch/overview"]
+----
+@startuml
+Alice -> Bob : architecture
+@enduml
+----
+
+[plantuml,id="arch_overview"]
+----
+@startuml
+Carol -> Dave : also architecture
+@enduml
+----

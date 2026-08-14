@@ -96,6 +96,101 @@ teardown() {
     assert_file_count 1 "${OUT_ABS}" '*.svg'
 }
 
+# One rendered case per entry in SUPPORTED_TYPES, and that is the whole point of them.
+# That list is documentation — it answers "which diagrams does this image render out of
+# the box?" — and it was assembled from what looked plausible rather than from what the
+# image does. It named six types this image cannot render and one that is not a block
+# type in any image. A list nobody executes drifts; these two cases plus the plantuml and
+# mermaid ones above are what keep it from drifting again.
+
+@test "ditaa renders" {
+    run ./bin/adcw extract-diagrams -i "${FIXTURES}/ditaa.adoc" -o "${OUT}" --format rendered
+    assert_success
+    assert_output --regexp 'Rendered: .*\.svg'
+    assert_file_count 1 "${OUT_ABS}" '*.svg'
+}
+
+@test "graphviz renders" {
+    run ./bin/adcw extract-diagrams -i "${FIXTURES}/graphviz.adoc" -o "${OUT}" --format rendered
+    assert_success
+    assert_output --regexp 'Rendered: .*\.svg'
+    assert_file_count 1 "${OUT_ABS}" '*.svg'
+}
+
+# C4 is a PlantUML standard library, not a diagram type — which is why `c4plantuml` left
+# SUPPORTED_TYPES instead of gaining a renderer. The help text says to write it this way;
+# this case is what stops that sentence from being an unchecked claim.
+@test "C4 renders as a plantuml block with an include" {
+    run ./bin/adcw extract-diagrams -i "${FIXTURES}/plantuml-c4.adoc" -o "${OUT}" --format rendered
+    assert_success
+    assert_output --regexp 'Rendered: .*\.svg'
+    assert_file_count 1 "${OUT_ABS}" '*.svg'
+}
+
+# The extractable list is read out of asciidoctor-diagram at startup, not transcribed
+# from its documentation. Both names below are things a hand-written list would not
+# contain: `qrcode` because the docs mention `barcode` once while the extension registers
+# every symbology separately, and `tape` because that is the block name vhs registers
+# under. If either disappears, the list has been replaced by a copy — which is how it
+# drifted the first time.
+@test "the extractable list comes from the extension, not from a copy" {
+    run ./bin/adcw extract-diagrams -i "${FIXTURES}/no-diagrams.adoc" -o "${OUT}" --format source
+    assert_success
+    assert_output --partial "qrcode"
+    assert_output --partial "tape"
+}
+
+# A block id becomes the stem of the files extracted from it, and `arch/overview` is an id
+# somebody writes without a second thought. Joined onto the output directory it names a
+# subdirectory that does not exist, and the extraction yields nothing — for a document
+# nothing is wrong with.
+#
+# Every component survives; only the separator changes. Keeping the last component alone
+# would be shorter and wrong: it merges ids that differ, which the next case is about.
+@test "a slash in a block id is a filename, not a path" {
+    run ./bin/adcw extract-diagrams -i "${FIXTURES}/slash-in-id.adoc" -o "${OUT}" --format source
+    assert_success
+    assert_output --partial "Diagrams found: 1"
+
+    # Directly in the output directory, under a name that still says which id it came from.
+    assert_file_count 1 "${OUT_ABS}" '*.plantuml'
+    [[ -e "${OUT_ABS}/arch_overview.plantuml" ]] || fail "not written under the flattened name"
+}
+
+# Keeping every component separates the ids a document actually carries. What it cannot
+# separate is a slash meeting the underscore it becomes — the residual case. It has to
+# fail loudly rather than quietly drop one of the two, which is what overwriting did.
+@test "two ids that normalise to one name stop the run" {
+    run ./bin/adcw extract-diagrams -i "${FIXTURES}/colliding-ids.adoc" -o "${OUT}" --format source
+    assert_failure
+
+    # Both ids named, so the document author knows which two to change.
+    assert_output --partial "arch/overview"
+    assert_output --partial "would be written as 'arch_overview'"
+
+    # Nothing written at all: the names are decided before the first file, so a later step
+    # reading the directory cannot find a partial result beside a non-zero exit.
+    assert_file_count 0 "${OUT_ABS}" '*.plantuml'
+}
+
+# The two lists, and why they are two. Extraction needs no renderer, so a type this image
+# cannot draw is still worth pulling out — that is what the tool is for. Collapsing the
+# lists into one would take the source with the picture.
+
+@test "a type this image cannot render is still extracted" {
+    run ./bin/adcw extract-diagrams -i "${FIXTURES}/structurizr.adoc" -o "${OUT}" --format source
+    assert_success
+    assert_output --partial "Diagrams found: 1"
+    assert_file_count 1 "${OUT_ABS}" '*.structurizr'
+}
+
+@test "a type this image cannot render says so under --format rendered" {
+    run ./bin/adcw extract-diagrams -i "${FIXTURES}/structurizr.adoc" -o "${OUT}" --format rendered
+    assert_failure 1
+    assert_output --partial "Cannot render structurizr"
+    assert_file_count 0 "${OUT_ABS}" '*.svg'
+}
+
 # The silent pass this suite was extended for: a renderer that fails must fail the run.
 # Exit code first, message second â a warning on stdout is what the old version did. And
 # no file, which is how "the renderer refused" is told apart from "the renderer wrote a

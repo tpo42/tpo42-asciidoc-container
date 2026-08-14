@@ -1,0 +1,14 @@
+= Ditaa Block
+
+Ditaa is on SUPPORTED_TYPES, so this file exists to keep that entry honest. The list
+answers "which diagrams does this image render out of the box?", and an earlier version
+of it answered wrongly in both directions -- it claimed ditaa could not be rendered while
+the gem's jar sat in the image, and claimed a `c4plantuml` block type that has never
+existed.
+
+[ditaa]
+----
++--------+     +--------+
+| Source | --> | Target |
++--------+     +--------+
+----
