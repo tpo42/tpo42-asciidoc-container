@@ -303,6 +303,15 @@ pre-push:
       glob: "{container/resources/extract-diagrams.rb,test/extract-diagrams-cases.bats,test/run-suite.bash,test/test_helper/*.bash,test/fixtures/extract-diagrams/*,bin/adcw}"
       run: test/run-suite.bash test/extract-diagrams-cases.bats
 
+    # What the image is, rather than what it does: the PATH a login shell ends up with,
+    # sudo without a password, no variable pointing at something that was removed. The
+    # glob watches the image's own sources, since nothing else notices when one of these
+    # goes away.
+    - name: image-cases
+      tags: [domain, asciidoc, test]
+      glob: "{container/Containerfile,container/bashrc.bsp,container/extra-packages,test/image-cases.bats,test/run-suite.bash,test/test_helper/*.bash}"
+      run: test/run-suite.bash test/image-cases.bats
+
 
 # Advisory, not a gate — hence groups of their own rather than a job in pre-push. The
 # review is not deterministic: same input, a finding one time and none the next. As a

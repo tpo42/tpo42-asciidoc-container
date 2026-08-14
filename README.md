@@ -275,6 +275,7 @@ tpo42-asciidoc-container/
 │   ├── unit/                    Unit suites (source bin/adcw, no container)
 │   ├── validate-cases.bats      validate regression suite (needs the image)
 │   ├── extract-diagrams-cases.bats
+│   ├── image-cases.bats         What the image is: login PATH, sudo, environment
 │   ├── bats/                    submodule: bats-core
 │   ├── test_helper/             submodule: bats-support, bats-assert + adcw.bash
 │   └── fixtures/                One document per defect class
