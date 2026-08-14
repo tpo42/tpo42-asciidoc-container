@@ -66,6 +66,38 @@ setup() {
     assert_output --regexp 'ERROR:.*Failed to generate image'
 }
 
+# --- Input resolution and arguments -----------------------------------------
+
+# A pattern with a directory component goes through `find -path`, where `*` matches across
+# separators — so `tree/*.adoc` reaches `tree/deeper/nested.adoc`, which it never named.
+# Latent while adr/ and req/ have no subdirectories, and those are what the gate globs.
+@test "a directory glob stays in the directory it names" {
+    run ./bin/adcw validate -i "${FIXTURES}/tree/*.adoc" -l INFO
+    assert_success
+    assert_output --regexp 'Files found:[[:space:]]+1'
+    refute_output --partial "nested.adoc"
+}
+
+# An option whose value is missing dereferences $2 under `set -u`, so the script dies with
+# "unbound variable" — bash's words about the implementation, where the script has its own
+# to say about the invocation.
+@test "an option without its value is reported, not crashed on" {
+    run ./bin/adcw validate -i
+    assert_failure
+    refute_output --partial "unbound variable"
+    assert_output --partial "-i requires"
+}
+
+# --safe-mode server jails every output path to the base directory, so a work directory
+# outside the workspace is refused — six frames deep, as a SecurityError against the
+# document. The curated error next to it covers "cannot write here" only.
+@test "a work directory outside the workspace is refused in our own words" {
+    run ./bin/adcw validate -i "${FIXTURES}/clean.adoc" -w /tmp/outside-the-jail
+    assert_failure
+    refute_output --partial "SecurityError"
+    assert_output --partial "inside the workspace"
+}
+
 # The escape hatch has to actually escape, or --no-diagrams is a comfortable lie.
 #
 # Three assertions, because exit 0 alone is satisfied by a validator that skipped the

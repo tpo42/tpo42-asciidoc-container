@@ -296,6 +296,12 @@ pre-push:
       glob: "{container/resources/validate.sh,test/validate-cases.bats,test/run-suite.bash,test/test_helper/*.bash,test/fixtures/validate/*,bin/adcw}"
       run: test/run-suite.bash test/validate-cases.bats
 
+    # An include resolved rather than carried over, and the two options that take a value.
+    - name: flatten-cases
+      tags: [domain, asciidoc, test]
+      glob: "{container/resources/flatten.sh,test/flatten-cases.bats,test/run-suite.bash,test/test_helper/*.bash,test/fixtures/flatten/*,bin/adcw}"
+      run: test/run-suite.bash test/flatten-cases.bats
+
     # Both block delimiters, the mixed document, the empty one, rendering through the
     # gem's PlantUML jar, and the type this image does not render.
     - name: extract-diagrams-cases
