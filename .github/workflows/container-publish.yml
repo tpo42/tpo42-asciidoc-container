@@ -330,8 +330,12 @@ jobs:
       - name: Resolve version from tag
         id: version
         if: inputs.tag != '' || startsWith(github.ref, 'refs/tags/v')
+        # Through env, not interpolated into the script: an expression is substituted as
+        # text before the shell sees it, and a tag name may legally contain `$(…)` or
+        # backticks. The job holds packages: write.
+        env:
+          RAW_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          RAW_TAG="${{ inputs.tag || github.ref_name }}"
           VERSION="${RAW_TAG#v}"
           # The patch component is read and dropped: only the floating major and
           # major.minor tags are published alongside the exact version.

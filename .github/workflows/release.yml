@@ -49,12 +49,16 @@ jobs:
       - name: Calculate new version
         if: steps.bump.outputs.bump != 'none'
         id: version
+        # LATEST_TAG comes from the tag list, so it is a name somebody chose. Same reason
+        # as the steps below: an expression is text-substituted before the shell parses.
+        env:
+          LATEST_TAG: ${{ steps.bump.outputs.latest_tag }}
+          BUMP: ${{ steps.bump.outputs.bump }}
         run: |
-          VERSION="${{ steps.bump.outputs.latest_tag }}"
-          VERSION="${VERSION#v}"
+          VERSION="${LATEST_TAG#v}"
           IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION}"
 
-          case "${{ steps.bump.outputs.bump }}" in
+          case "${BUMP}" in
             major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
             minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
             patch)  PATCH=$((PATCH + 1)) ;;
@@ -62,7 +66,7 @@ jobs:
 
           NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
           echo "new_tag=${NEW_TAG}" >> "${GITHUB_OUTPUT}"
-          echo "${NEW_TAG} (${{ steps.bump.outputs.bump }} bump from ${{ steps.bump.outputs.latest_tag }})"
+          echo "${NEW_TAG} (${BUMP} bump from ${LATEST_TAG})"
 
       # The wrapper, for people who install it by hand rather than through the tap.
       # Two files, because bin/adcw sources the lib from ../lib relative to itself —
@@ -73,10 +77,13 @@ jobs:
       # Without the leading v, because that is how container-publish tags the images.
       - name: Build the wrapper artefacts
         if: steps.version.outputs.new_tag
+        # Through env rather than into the script text: an expression is substituted
+        # before the shell runs, and a tag is a name somebody chose.
+        env:
+          NEW_TAG: ${{ steps.version.outputs.new_tag }}
         run: |
           set -eu
-          VERSION="${{ steps.version.outputs.new_tag }}"
-          VERSION="${VERSION#v}"
+          VERSION="${NEW_TAG#v}"
 
           mkdir -p dist/bin dist/lib
           cp bin/adcw dist/bin/adcw
@@ -107,8 +114,9 @@ jobs:
 
       - name: Generate release notes
         if: steps.version.outputs.new_tag
+        env:
+          RANGE: ${{ steps.bump.outputs.commit_range }}
         run: |
-          RANGE="${{ steps.bump.outputs.commit_range }}"
           git log "${RANGE}" --pretty=format:"- %s" > /tmp/release_notes.md
           cat >> /tmp/release_notes.md <<'NOTES'
 
