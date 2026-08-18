@@ -129,7 +129,7 @@ pre-commit:
     - name: dclint
       tags: [mini, compose]
       glob: "*compose*.{yml,yaml}"
-      run: "{mini} dclint {staged_files}"
+      run: "{mini} dclint --fix {staged_files}"
 
     # This repository's whole purpose is a container image, so it lints its own recipes —
     # both the delivered one and the fleet's.
