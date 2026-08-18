@@ -257,14 +257,8 @@ ADCW explores Ruby-native alternatives for common docToolchain use cases. Some m
 
 ```
 tpo42-asciidoc-container/
-├── adr/                          Architecture Decision Records
-│   ├── adr-001.adoc             Base image: ruby:3-trixie
-│   ├── adr-002.adoc             Remove pre-commit from container
-│   ├── adr-003.adoc             Upgrade Bundler to 4.x
-│   ├── adr-004.adoc             Include EPUB3 capability
-│   ├── adr-005.adoc             Extensibility: adcw + devcontainer
-│   ├── adr-006.adoc             Shell completion strategy
-│   └── adr-007.adoc             Unified script architecture
+├── req/                          req42 artefacts -- see Requirements below
+├── adr/                          Architecture Decision Records -- see below
 ├── bin/
 │   ├── adcbw                     Build wrapper
 │   └── adcw                      CLI wrapper (unified, ADR-007)
@@ -274,28 +268,43 @@ tpo42-asciidoc-container/
 │       ├── adcw.bash             Bash completion
 │       └── _adcw                 Zsh completion
 ├── container/
-│   ├── Containerfile            Container build definition
-│   ├── Gemfile                  Base gem dependencies
-│   ├── bashrc.bsp               Shell environment for container user
-│   ├── extra-packages           System package list
-│   └── resources/               Command scripts (plugin system)
+│   ├── Containerfile             Toolchain image, both variants (ADR-008)
+│   ├── Gemfile                   Base gem dependencies
+│   ├── bashrc.bsp                Shell environment for container user
+│   ├── extra-packages            System package list
+│   ├── mini.Containerfile        The QA fleet's own image -- linters, not AsciiDoc
+│   ├── mini.requirements.txt     Its Python-side gate versions
+│   └── resources/                Command scripts (plugin system)
 │       ├── extract-diagrams.rb
 │       ├── flatten.sh
 │       ├── mmdc-wrapper.sh
+│       ├── puppeteer.json        Chromium config for the Mermaid variant
 │       └── validate.sh
-├── test/                        BATS suites (ADR-010)
-│   ├── run-suite.bash           Runs bats with the interpreter pinned to /bin/bash
-│   ├── unit/                    Unit suites (source bin/adcw, no container)
-│   ├── validate-cases.bats      validate regression suite (needs the image)
+├── test/                         BATS suites (ADR-010)
+│   ├── run-suite.bash            Runs bats with the interpreter pinned to /bin/bash
+│   ├── unit/                     Unit suites (source bin/adcw, no container)
+│   ├── validate-cases.bats       validate regression suite (needs the image)
 │   ├── flatten-cases.bats
 │   ├── extract-diagrams-cases.bats
-│   ├── image-cases.bats         What the image is: login PATH, sudo, environment
-│   ├── bats/                    submodule: bats-core
-│   ├── test_helper/             submodule: bats-support, bats-assert + adcw.bash
-│   └── fixtures/                One document per defect class
-├── LICENSE.txt                  CC-BY-SA-4.0
+│   ├── image-cases.bats          What the image is: login PATH, sudo, environment
+│   ├── bats/                     submodule: bats-core
+│   ├── test_helper/              submodule: bats-support, bats-assert + adcw.bash
+│   └── fixtures/                 One document per defect class
+├── .github/workflows/            CI -- the same lefthook jobs, plus publishing
+│   ├── quality-gates.yml         pre-commit and pre-push on Linux and macOS
+│   ├── container-publish.yml     Both variants per architecture (ADR-011)
+│   ├── release.yml               Tagged releases
+│   ├── ghcr-cleanup.yml          Registry housekeeping
+│   └── claude-ondemand.yml       Claude Code, on mention
+├── lefthook.yml                  The gates -- container-agnostic, see below
+├── qa-compose.yml                The warm QA fleet the templates point at
+├── CLAUDE.md                     Working agreements for Claude Code
+├── LICENSE.txt                   CC-BY-SA-4.0
 └── README.md
 ```
+
+Dotfiles at the root (`.editorconfig`, `.shellcheckrc`, `.yamllint`, `.hadolint.yaml`,
+`.rubocop.yml`, `.dclintrc`, `.gitlint`) configure the gates `lefthook.yml` runs.
 
 ## Volume Mapping
 
@@ -327,11 +336,11 @@ The wrapper auto-detects available container runtimes (in priority order):
 
 ## Local lefthook Setup
 
-Contributors only. Sixteen checks run on every commit -- shellcheck, shfmt, `zsh -n`,
-editorconfig, yamllint, actionlint, hadolint, dclint, mdformat, gitleaks, the unit
-tests, and `adcw validate` over the ADRs. `lefthook.yml` names no container: its
-`{mini}` and `{adoc}` templates decide where each tool comes from, and
-`lefthook-local.yml` fills them in.
+Contributors only. Twenty checks run on every commit -- shellcheck, shfmt, `zsh -n`,
+editorconfig, yamllint, actionlint, hadolint, dclint, mdformat, rubocop, gitleaks, the
+unit tests, and `adcw validate` over the ADRs and the req42 artefacts. `lefthook.yml`
+names no container: its `{mini}` and `{adoc}` templates decide where each tool comes
+from, and `lefthook-local.yml` fills them in.
 
 ### Containerised, the usual path
 
@@ -394,6 +403,31 @@ lefthook run pre-commit --tag shell    # just the shell floor
 CI runs the same `lefthook.yml` -- Linux for the container-bound gates, macOS for the
 shell floor, where `/bin/bash` is still 3.2 and bash 4 constructs fail only at runtime.
 
+## Requirements
+
+The problem side lives in `req/`, in [req42](https://req42.de/) form -- who needs this,
+what for, and what the world around it already decided. The ADRs below answer these; a
+decision that answers none of them is a decision without a reason to exist.
+
+Use cases -- who runs this, and to what end:
+
+- **UC-001**: Keep a handful of small AsciiDoc projects healthy (docToolchain-lite, no CI)
+- **UC-002**: Improve documentation locally while CI builds it
+- **UC-003**: Document with diagrams the image cannot render alone (Kroki-class)
+- **UC-004**: Build a house toolchain on top of the image
+- **UC-005**: Change the container or its wrappers (the contributor's path)
+- **UC-006**: Gate a documentation build on validation, rather than report on it
+- **UC-007**: Publish the image and hold the wrappers to their gates
+
+Functional requirements:
+
+- **FR-001**: Document correctness validation -- every warning is a failure
+
+Constraints -- surveyed ground the decisions rest on, each dated and rechecked as a whole:
+
+- **CON-001**: Container runtime landscape (basis for ADR-009)
+- **CON-002**: Parallel jobs in GitHub Actions (basis for ADR-011)
+
 ## Architecture Decisions
 
 All significant decisions are documented as ADRs in `adr/`:
@@ -406,6 +440,9 @@ All significant decisions are documented as ADRs in `adr/`:
 - **ADR-006**: Shell function compatibility and completion strategy
 - **ADR-007**: Unified script architecture for the container wrappers
 - **ADR-008**: Mermaid ships as a variant image, not in the base
+- **ADR-009**: The requirement selects the runtime, the image store bounds the choice
+- **ADR-010**: BATS owns the harness, a shim owns the interpreter
+- **ADR-011**: The CI fan-out follows the architecture, not the image
 
 ## tpo42 Framework
 
