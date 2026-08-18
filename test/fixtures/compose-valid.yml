@@ -12,5 +12,5 @@ services:
     image: tpo42/adoc:0
     volumes:
       - .:/workspace
-    command: ["sleep", "infinity"]
+    command: [ "sleep", "infinity" ]
     working_dir: /workspace

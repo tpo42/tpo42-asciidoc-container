@@ -16,13 +16,21 @@
 # Warm runner on purpose. `command: sleep infinity` plus `docker compose exec` means one
 # container start per session instead of one per job — with a dozen jobs per commit that
 # is the difference between a hook you keep and a hook you disable.
+#
+# The single service is the fast, non-build fleet: ec, shellcheck, shfmt, zsh, yamllint,
+# actionlint, dclint, hadolint, gitleaks, gitlint, mdformat, check-jsonschema, jq.
+#
+# That sentence stands here rather than above the service key, which is where it belongs
+# and where it used to be. `dclint --fix` rebuilds each service mapping and writes it back
+# with `services.set(name, …)`, which replaces the whole pair — and the comment hangs off
+# the key node of the pair it replaces. Comments on keys *inside* a service survive, since
+# those pairs are moved rather than rebuilt; `user:` below proves it. This preamble is
+# outside anything the fixer touches. Upstream bug, open, not a setting we can flip:
+# https://github.com/zavoloklom/docker-compose-linter/issues/314
 
 name: tpo42-adc-qa
 
 services:
-
-  # The fast, non-build fleet: ec, shellcheck, shfmt, zsh, yamllint, actionlint, dclint,
-  # hadolint, gitleaks, gitlint, mdformat, check-jsonschema, jq.
   tpo42-adc-mini:
     image: tpo42/adc-mini-qa:local
     build:
@@ -37,11 +45,6 @@ services:
       args:
         USER_UID: ${USER_UID:-1000}
         USER_GID: ${USER_GID:-1000}
-    # The image bakes the same ids, so this is belt and braces — but an image built before
-    # .env existed, or pulled rather than built, carries uid 1000 and the formatters then
-    # write into the bind mount as somebody else. macOS remaps ownership and never shows
-    # it; on Linux the job dies of "permission denied" instead of a formatting finding.
-    user: "${USER_UID:-1000}:${USER_GID:-1000}"
     volumes:
       - .:/workspace
     # gitlint asks git for user.name, and the container never sees ~/.gitconfig. Neither
@@ -55,5 +58,10 @@ services:
       GIT_CONFIG_VALUE_0: ${GIT_USER_NAME:?set GIT_USER_NAME in .env — see README, Local lefthook Setup}
       GIT_CONFIG_KEY_1: user.email
       GIT_CONFIG_VALUE_1: ${GIT_USER_EMAIL:?set GIT_USER_EMAIL in .env — see README, Local lefthook Setup}
-    command: ["sleep", "infinity"]
+    command: [ "sleep", "infinity" ]
     working_dir: /workspace
+    # The image bakes the same ids, so this is belt and braces — but an image built before
+    # .env existed, or pulled rather than built, carries uid 1000 and the formatters then
+    # write into the bind mount as somebody else. macOS remaps ownership and never shows
+    # it; on Linux the job dies of "permission denied" instead of a formatting finding.
+    user: "${USER_UID:-1000}:${USER_GID:-1000}"
