@@ -15,7 +15,7 @@
 # ============================================================
 # Stage 1: the delivered AsciiDoc toolchain
 # ============================================================
-FROM ruby:3-trixie AS adoc
+FROM ruby:4-trixie AS adoc
 
 LABEL maintainer="Jens Rehsack <rehsack+tpo42@posteo.de>"
 LABEL description="AsciiDoc Container Wrapper - Lean toolchain for TPO42 operations"
