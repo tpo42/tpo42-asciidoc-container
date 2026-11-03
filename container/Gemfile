@@ -46,7 +46,7 @@ gem 'asciidoctor-epub3', '~> 2.2'
 #
 # Upstream stopped tagging Ruby releases as ruby-v* and versions the gem alongside the
 # JavaScript package, which is why 1.0.x follows 0.10.2.
-gem 'asciidoctor-kroki', '~> 1.0'
+gem 'asciidoctor-kroki', '~> 2.0'
 
 # Multi-format document processing
 # gem 'asciidoctor-confluence', '~> 0.0.2'
