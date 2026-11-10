@@ -27,7 +27,7 @@ gem 'asciidoctor-reducer', '~> 1.0'
 gem 'rouge', '~> 5.1'
 
 # Enhanced presentation formats
-gem 'asciidoctor-revealjs', '~> 5.2'
+gem 'asciidoctor-revealjs', '~> 6.0'
 
 # Bibliography support
 gem 'asciidoctor-bibtex', '~> 0.8'
